@@ -12,13 +12,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build .deb
         run: |
-          mkdir -p deb/usr/local/bin deb/DEBIAN
-          cp tweakctl/tweakctl deb/usr/local/bin/
-          chmod 755 deb/usr/local/bin/tweakctl
+          VER="${GITHUB_REF#refs/tags/v}"
+          mkdir -p deb/usr/local/bin deb/usr/share/applications deb/DEBIAN
+          cp tweakctl/tweakctl tweakctl/tweakctl-gui deb/usr/local/bin/
+          chmod 755 deb/usr/local/bin/tweakctl deb/usr/local/bin/tweakctl-gui
+          cp tweakctl/tweakctl-gui.desktop deb/usr/share/applications/
           cp tweakctl/packaging/deb-control deb/DEBIAN/control
-          dpkg-deb --build deb tweakctl_0.1.0_all.deb
+          sed -i "s/^Version:.*/Version: $VER/" deb/DEBIAN/control
+          dpkg-deb --build deb tweakctl_${VER}_all.deb
       - uses: actions/upload-artifact@v4
-        with: { name: deb, path: tweakctl_0.1.0_all.deb }
+        with: { name: deb, path: tweakctl_*.deb }
 
   build-rpm:
     runs-on: ubuntu-latest
@@ -29,9 +32,10 @@ jobs:
         run: dnf install -y rpm-build
       - name: Build .rpm
         run: |
+          VER="${GITHUB_REF#refs/tags/v}"
           mkdir -p rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
-          cp tweakctl/tweakctl rpmbuild/SOURCES/
-          cp tweakctl/packaging/tweakctl.spec rpmbuild/SPECS/
+          cp tweakctl/tweakctl tweakctl/tweakctl-gui tweakctl/tweakctl-gui.desktop rpmbuild/SOURCES/
+          sed "s/^Version:.*/Version:        $VER/" tweakctl/packaging/tweakctl.spec > rpmbuild/SPECS/tweakctl.spec
           rpmbuild -bb --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/tweakctl.spec
       - uses: actions/upload-artifact@v4
         with: { name: rpm, path: rpmbuild/RPMS/noarch/*.rpm }
@@ -51,8 +55,54 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: archpkg, path: tweakctl/packaging/*.pkg.tar.zst }
 
+  build-appimage:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 python3-tk python3-pip wget
+          pip3 install --user pyinstaller
+      - name: Build binaries with PyInstaller
+        run: |
+          ~/.local/bin/pyinstaller --onefile --name tweakctl tweakctl/tweakctl
+          ~/.local/bin/pyinstaller --onefile --name tweakctl-gui tweakctl/tweakctl-gui
+      - name: Assemble AppDir
+        run: |
+          VER="${GITHUB_REF#refs/tags/v}"
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications
+          cp dist/tweakctl dist/tweakctl-gui AppDir/usr/bin/
+          cat > AppDir/usr/share/applications/tweakctl.desktop <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=tweakctl
+          Comment=Hibernation, S3 sleep, Plymouth boot splash and ctOS sounds
+          Exec=tweakctl
+          Icon=tweakctl
+          Categories=Settings;System;
+          Terminal=false
+          EOF
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/tweakctl" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+      - name: Download appimagetool
+        run: |
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O appimagetool
+          chmod +x appimagetool
+      - name: Build AppImage
+        run: |
+          VER="${GITHUB_REF#refs/tags/v}"
+          VERSION="$VER" ./appimagetool --appimage-extract-and-run AppDir
+          mv tweakctl-${VER}-x86_64.AppImage tweakctl-x86_64.AppImage
+      - uses: actions/upload-artifact@v4
+        with: { name: appimage, path: tweakctl-x86_64.AppImage }
+
   release:
-    needs: [build-debian, build-rpm, build-arch]
+    needs: [build-debian, build-rpm, build-arch, build-appimage]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
@@ -65,3 +115,4 @@ jobs:
             artifacts/deb/*
             artifacts/rpm/*
             artifacts/archpkg/*
+            artifacts/appimage/*

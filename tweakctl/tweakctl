@@ -5,7 +5,7 @@ Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
 import argparse, os, re, shutil, subprocess, sys, time, urllib.request, json
 
-VERSION = "0.7.0"
+VERSION = "0.7.2"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -1194,10 +1194,18 @@ Startup in Windows first. Full text:  tweakctl disclaimer"""
         return
     if a.command == "gui":
         import subprocess as _sp
-        gui = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tweakctl-gui")
-        if not os.path.exists(gui):
+        here = os.path.dirname(os.path.realpath(__file__))
+        exe_dir = os.path.dirname(os.path.realpath(sys.executable))
+        gui = None
+        for cand in (os.path.join(here, "tweakctl-gui"),
+                     os.path.join(exe_dir, "tweakctl-gui"),
+                     shutil.which("tweakctl-gui")):
+            if cand and os.path.exists(cand):
+                gui = cand
+                break
+        if not gui:
             die("tweakctl-gui not found next to tweakctl — reinstall.")
-        _sp.call([sys.executable, gui])
+        _sp.call([gui])
         return
     if a.command == "hibernate":
         hibernate_check() if a.action=="check" else hibernate_enable()

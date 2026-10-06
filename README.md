@@ -18,7 +18,16 @@ Each feature folder contains its own `README.md`, the actual config/script/theme
 curl -fsSL https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/main/install.sh | bash
 ```
 
-Same tool is also published as **`npm i -g tweakctl`**, and as native packages (`.deb` / `.rpm` / Arch `.pkg.tar.zst`) on every [release](https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/releases). Only requirement: `python3`.
+Same tool is also published as **`npm i -g tweakctl`**, as native packages (`.deb` / `.rpm` / Arch `.pkg.tar.zst`), and as a **zero-dependency AppImage** that runs on any distro — on every [release](https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/releases). Only requirement: `python3` (not even that for the AppImage).
+
+**AppImage — runs everywhere, nothing to install:**
+```bash
+curl -LO https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/releases/latest/download/tweakctl-x86_64.AppImage
+chmod +x tweakctl-x86_64.AppImage
+./tweakctl-x86_64.AppImage gui     # or: ./tweakctl-x86_64.AppImage
+```
+The AppImage bundles python3 + tkinter, so it works on Arch, Ubuntu, Fedora,
+and anything else — no distro packages, no toolchains, no install step.
 
 ```bash
 tweakctl                     # interactive TUI menu (↑/↓, Enter, q)

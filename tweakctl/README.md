@@ -40,6 +40,14 @@ git clone ssh://aur@aur.archlinux.org/tweakctl.git
 cp PKGBUILD tweakctl/; cd tweakctl && makepkg --printsrcinfo > .SRCINFO && git add -A && git commit -m init && git push
 ```
 
+### AppImage — works everywhere, zero install
+```bash
+curl -LO https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/releases/latest/download/tweakctl-x86_64.AppImage
+chmod +x tweakctl-x86_64.AppImage
+./tweakctl-x86_64.AppImage gui
+```
+Bundles python3 + tkinter — runs on any distro, nothing to install.
+
 ### Ubuntu / Debian (.deb)
 ```bash
 sudo dpkg -i tweakctl_0.6.0_all.deb

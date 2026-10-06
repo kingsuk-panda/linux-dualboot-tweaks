@@ -6,15 +6,22 @@ system changes (elevated via pkexec/sudo) and its state functions for checks.
 """
 import argparse, importlib.util, importlib.machinery, os, queue, re, shutil, subprocess, sys, threading, time
 
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 
 # ---------- import the tweakctl module (file has no .py extension) ----------
 def load_tweakctl():
     here = os.path.dirname(os.path.realpath(__file__))
-    path = shutil.which("tweakctl") or os.path.join(here, "tweakctl")
-    if not os.path.exists(path):
-        die(f"tweakctl CLI not found (looked in PATH and {here}).")
+    exe_dir = os.path.dirname(os.path.realpath(sys.executable))
+    path = None
+    for cand in (shutil.which("tweakctl"),
+                 os.path.join(here, "tweakctl"),
+                 os.path.join(exe_dir, "tweakctl")):
+        if cand and os.path.exists(cand):
+            path = cand
+            break
+    if not path:
+        die(f"tweakctl CLI not found (looked in PATH, {here}, {exe_dir}).")
     spec = importlib.util.spec_from_loader("tweakctl",
         importlib.machinery.SourceFileLoader("tweakctl", path))
     mod = importlib.util.module_from_spec(spec)
