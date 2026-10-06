@@ -17,3 +17,4 @@ tweakctl/packaging/rpmbuild/
 tweakctl/packaging/deb/
 tweakctl/packaging/src/
 tweakctl/packaging/pkg/
+tweakctl/packaging/tweakctl-*/
