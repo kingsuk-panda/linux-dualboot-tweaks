@@ -7,7 +7,7 @@ arch=('any')
 url="https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 license=('MIT')
 depends=('python')
-source=("$pkgname-$pkgver::https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/raw/v0.2.0/tweakctl/tweakctl")
+source=("$pkgname-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.2.0/tweakctl/tweakctl")
 sha256sums=('SKIP')
 
 package() {

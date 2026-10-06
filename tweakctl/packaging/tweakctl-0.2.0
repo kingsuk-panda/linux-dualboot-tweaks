@@ -1,0 +1,297 @@
+#!/usr/bin/env python3
+"""tweakctl — one CLI to check/enable hibernation, S3 sleep, Plymouth themes, and ctOS sounds.
+
+Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
+"""
+import argparse, os, re, shutil, subprocess, sys, urllib.request, json, platform
+
+VERSION = "0.2.0"
+GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
+RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
+
+# ---------- helpers ----------
+def run(cmd, sudo=False, check=True):
+    if sudo:
+        cmd = ["sudo"] + cmd
+    try:
+        return subprocess.run(cmd, check=check, text=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        print(f"ERROR running {' '.join(cmd)}:\n{e.stderr}", file=sys.stderr)
+        if check: sys.exit(1)
+        return e
+
+def has(cmd): return shutil.which(cmd) is not None
+
+def distro():
+    try:
+        with open("/etc/os-release") as f:
+            data = dict(l.strip().split("=",1) for l in f if "=" in l)
+        return data["ID"], data.get("ID_LIKE","")
+    except FileNotFoundError:
+        return "unknown", ""
+
+def die(msg): print(f"[FAIL] {msg}", file=sys.stderr); sys.exit(1)
+
+# ---------- hibernation ----------
+def hibernate_check():
+    print("== Hibernation check ==")
+    st = open("/sys/power/state").read().strip() if os.path.exists("/sys/power/state") else ""
+    print(f"  Power states: {st or 'unknown'}")
+    ok = "disk" in st
+    print(f"  [{'OK' if ok else 'NO'}] 'disk' hibernation supported by kernel")
+    swaps = []
+    if os.path.exists("/proc/swaps"):
+        for line in open("/proc/swaps").read().splitlines()[1:]:
+            parts = line.split()
+            size_gb = int(parts[2])/1024/1024
+            swaps.append((parts[0], size_gb))
+    for dev, sz in swaps:
+        print(f"  swap: {dev} {sz:.0f} GiB")
+    if not swaps:
+        print("  [NO] no swap — create swap >= RAM")
+    mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
+    if swaps and max(s for _, s in swaps) < mem*0.9:
+        print(f"  [WARN] swap ({max(s for _,s in swaps):.0f} GiB) < RAM ({mem:.0f} GiB)")
+    cmdline = open("/proc/cmdline").read()
+    ok = "resume=" in cmdline
+    print(f"  [{'OK' if ok else 'NO'}] kernel has resume= param")
+    print(f"  [{'OK' if 'resume' in open('/etc/mkinitcpio.conf').read() else 'NO'}] mkinitcpio has resume hook"
+          if os.path.exists('/etc/mkinitcpio.conf') else "  [..] non-mkinitcpio distro")
+    if os.path.exists("/usr/lib/dracut") or os.path.exists("/usr/bin/dracut"):
+        print("  [..] Fedora/RHEL: resume handled by dracut when resume= is set")
+    if os.path.exists("/etc/initramfs-tools"):
+        ok = any("RESUME=" in open(p, errors='ignore').read() for p in
+                 [os.path.join(r,f) for r,_,files in os.walk('/etc/initramfs-tools') for f in files]) if os.path.exists('/etc/initramfs-tools') else False
+        print(f"  [{'OK' if ok else 'NO'}] Ubuntu initramfs-tools RESUME= set")
+    print(f"  Currently hibernated? {'yes' if os.path.exists('/run/ctos-hibernated') else 'no marker found'}")
+
+def hibernate_enable():
+    hiber_check = []
+    try:
+        subprocess.run(["swapon", "--show"], check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        die("No swap active. Create swap >= RAM first.")
+    # find swap UUID
+    out = run(["blkid"], sudo=True, check=False).stdout
+    swap_uuid = None
+    for line in out.splitlines():
+        if "TYPE=\"swap\"" in line:
+            m = re.search(r'UUID="([^"]+)"', line)
+            if m: swap_uuid = m.group(1); break
+    if not swap_uuid:
+        die("Could not find any swap partition UUID.")
+    d, _ = distro()
+    print(f"Detected distro: {d}")
+    if d in ("arch",):
+        g = open("/etc/default/grub").read()
+        if "resume=" not in g:
+            run(["sed","-i",f"s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"loglevel=3 quiet resume=UUID={swap_uuid} mem_sleep_default=deep\"|","/etc/default/grub"], sudo=True)
+        mc = open("/etc/mkinitcpio.conf").read()
+        if "resume" not in mc:
+            run(["sed","-i","s/filesystems/resume filesystems/","/etc/mkinitcpio.conf"], sudo=True)
+        run(["grub-mkconfig","-o","/boot/grub/grub.cfg"], sudo=True)
+        run(["mkinitcpio","-P"], sudo=True)
+    elif d in ("ubuntu","debian","pop","linuxmint"):
+        with open(f"/etc/initramfs-tools/conf.d/resume","w") as f:
+            f.write(f"RESUME=UUID={swap_uuid}\n")
+        g = open("/etc/default/grub").read()
+        if "resume=" not in g:
+            run(["sed","-i",f"s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash resume=UUID={swap_uuid}\"|","/etc/default/grub"], sudo=True)
+        run(["update-initramfs","-u"], sudo=True)
+        run(["grub-update"], sudo=True) if has("grub-update") else run(["grub-mkconfig","-o","/boot/grub/grub.cfg"], sudo=True)
+    elif d in ("fedora","rhel","centos","rocky","alma","opensuse-leap","opensuse-tumbleweed"):
+        run(["grubby","--update-kernel=ALL",f"--args=resume=UUID={swap_uuid}"], sudo=True)
+        run(["dracut","--regenerate-all","--force"], sudo=True)
+    else:
+        print(f"Distro '{d}' not fully supported for auto-setup. Add resume=UUID={swap_uuid} manually.")
+    # fstab
+    fstab = open("/etc/fstab").read()
+    if swap_uuid not in fstab:
+        run(["bash","-c",f"echo 'UUID={swap_uuid} none swap defaults 0 0' >> /etc/fstab"], sudo=True)
+    print("Hibernation enabled. Reboot and test: systemctl hibernate")
+
+# ---------- s3 ----------
+def s3_check():
+    if os.path.exists("/sys/power/mem_sleep"):
+        line = open("/sys/power/mem_sleep").read().strip()
+        print(f"mem_sleep modes: {line}")
+        print(f"S3 (deep) {'available' if 'deep' in line else 'NOT available on this hardware'}")
+    else:
+        print("/sys/power/mem_sleep missing — check ACPI.")
+    cmd = open("/proc/cmdline").read()
+    print(f"mem_sleep_default= {'deep' if 'mem_sleep_default=deep' in cmd else 'not set to deep'}")
+
+def s3_set(mode="deep"):
+    d, _ = distro()
+    if d in ("arch","ubuntu","debian","pop","linuxmint"):
+        if "mem_sleep_default=" not in open("/etc/default/grub").read():
+            run(["sed","-i",f"s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|& mem_sleep_default={mode}|","/etc/default/grub"], sudo=True)
+        run(["grub-mkconfig","-o","/boot/grub/grub.cfg"], sudo=True)
+    elif d in ("fedora","rhel","centos","rocky","alma"):
+        run(["grubby","--update-kernel=ALL",f"--args=mem_sleep_default={mode}"], sudo=True)
+    print(f"Set mem_sleep_default={mode}. Reboot to apply.")
+
+# ---------- plymouth ----------
+def plymouth_check():
+    print(f"plymouth installed: {has('plymouth') or os.path.exists('/usr/share/plymouth')}")
+    cfg = "/etc/plymouth/plymouthd.conf"
+    if os.path.exists(cfg):
+        m = re.search(r"Theme=(.+)", open(cfg).read())
+        print(f"Current theme: {m.group(1) if m else 'default'}")
+    themes_dir = "/usr/share/plymouth/themes"
+    if os.path.exists(themes_dir):
+        print(f"Installed themes: {', '.join(os.listdir(themes_dir))}")
+    print(f"mkinitcpio hook: {'plymouth' in open('/etc/mkinitcpio.conf').read() if os.path.exists('/etc/mkinitcpio.conf') else 'n/a'}")
+    cmd = open("/proc/cmdline").read()
+    print(f"Kernel 'splash': {'yes' if 'splash' in cmd else 'no — add splash to cmdline'}")
+
+def plymouth_apply(theme):
+    if not theme:
+        d = "/usr/share/plymouth/themes"
+        if not os.path.exists(d): die("Plymouth not installed.")
+        theme = input(f"Available: {os.listdir(d)}\nTheme name: ").strip()
+    if not os.path.exists(f"/usr/share/plymouth/themes/{theme}"):
+        die(f"Theme '{theme}' not installed. Available: {os.listdir('/usr/share/plymouth/themes') if os.path.exists('/usr/share/plymouth/themes') else 'none'}")
+    run(["plymouth-set-default-theme", theme], sudo=True, check=False)
+    cfg = "/etc/plymouth/plymouthd.conf"
+    if os.path.exists(cfg):
+        run(["sed","-i",f"s/^Theme=.*/Theme={theme}/",cfg], sudo=True)
+    d,_ = distro()
+    if d=="arch": run(["mkinitcpio","-P"], sudo=True)
+    elif d in ("ubuntu","debian"): run(["update-initramfs","-u"], sudo=True)
+    elif d in ("fedora","rhel","centos"): run(["dracut","--regenerate-all","--force"], sudo=True)
+    print(f"Plymouth theme set to '{theme}'. Reboot.")
+
+# ---------- ctos sound ----------
+SOUNDS = {
+    "ctos-boot": "~/.local/share/sounds/ctos-boot.ogg",
+    "ctos-shutdown": "/usr/share/sounds/ctos/ctos-shutdown.ogg",
+}
+def sound_list():
+    print("Available built-in ctOS sounds:")
+    for name, path in SOUNDS.items():
+        expanded = os.path.expanduser(path)
+        print(f"  {name:15s} {'present' if os.path.exists(expanded) else 'missing'} ({expanded})")
+    for d in ["~/.local/share/sounds", "/usr/share/sounds/ctos"]:
+        p = os.path.expanduser(d)
+        if os.path.exists(p):
+            for f in os.listdir(p):
+                if f.endswith(('.ogg','.wav','.mp3')) and f not in [os.path.basename(v) for v in SOUNDS.values()]:
+                    print(f"  {f:30s} ({p}/{f})")
+
+def sound_apply(name_or_path, volume="0.7"):
+    path = None
+    if os.path.exists(os.path.expanduser(name_or_path)):
+        path = os.path.expanduser(name_or_path)
+    elif name_or_path in SOUNDS:
+        path = os.path.expanduser(SOUNDS[name_or_path])
+    if not path or not os.path.exists(path):
+        die(f"Sound '{name_or_path}' not found. Run `tweakctl sound list`.")
+    if not has("pw-play"): die("pw-play (pipewire) not installed.")
+    print(f"Applying boot sound: {path} (volume {volume})")
+    # update user unit
+    unit = os.path.expanduser("~/.config/systemd/user/ctos-boot-sound.service")
+    if os.path.exists(unit):
+        run(["sed","-i",f"s|ExecStart=.*|ExecStart=/usr/bin/pw-play --volume={volume} {path}|",unit])
+        run(["systemctl","--user","daemon-reload"])
+    print(f"Done. Play: pw-play --volume={volume} {path}")
+
+# ---------- update check ----------
+def update_check():
+    try:
+        url = f"https://api.github.com/repos/{GH_REPO}/releases/latest"
+        with urllib.request.urlopen(url, timeout=10) as r:
+            data = json.loads(r.read())
+        latest = data["tag_name"].lstrip("v")
+        if latest != VERSION:
+            print(f"Update available: {VERSION} → {latest}")
+            print(f"Download: {data['html_url']}")
+        else:
+            print(f"tweakctl is up to date (v{VERSION}).")
+    except Exception as e:
+        print(f"Could not check for updates: {e}")
+
+# ---------- TUI ----------
+def tui():
+    import curses
+    MENU = [
+        ("Hibernate → Check status", lambda: hibernate_check()),
+        ("Hibernate → Enable", lambda: hibernate_enable()),
+        ("S3 sleep → Check", lambda: s3_check()),
+        ("S3 sleep → Set deep", lambda: s3_set("deep")),
+        ("S3 sleep → Set s2idle", lambda: s3_set("s2idle")),
+        ("Plymouth → Check", lambda: plymouth_check()),
+        ("Plymouth → Apply theme", lambda: plymouth_apply(None)),
+        ("Sound → List", lambda: sound_list()),
+        ("Sound → Apply", lambda: sound_apply(input("name/path: "), "0.7")),
+        ("Update check", lambda: update_check()),
+        ("Quit", None),
+    ]
+    def loop(stdscr):
+        curses.curs_set(0); stdscr.keypad(True)
+        sel = 0; output = ["Welcome to tweakctl UI.", "Use ↑/↓ to navigate, Enter to run, q to quit.", ""]
+        while True:
+            stdscr.clear()
+            h, w = stdscr.getmaxyx()
+            stdscr.addstr(0, 0, "┏━━━━━━━━ tweakctl ━━━━━━━━┓", curses.A_BOLD)
+            for i, (label, _) in enumerate(MENU):
+                if i+2 >= h: break
+                if i == sel:
+                    stdscr.addstr(i+1, 0, f"▶ {label}", curses.A_REVERSE)
+                else:
+                    stdscr.addstr(i+1, 0, f"  {label}")
+            out_x = 32
+            stdscr.addstr(0, out_x, "── Output ───────────────")
+            for j, line in enumerate(output[-(h-2):]):
+                if j+1 >= h-1: break
+                stdscr.addstr(j+1, out_x, line[:w-out_x-1])
+            stdscr.refresh()
+            k = stdscr.getch()
+            if k in (ord('q'), ord('Q')): break
+            elif k == curses.KEY_UP: sel = (sel-1) % len(MENU)
+            elif k == curses.KEY_DOWN: sel = (sel+1) % len(MENU)
+            elif k in (10, curses.KEY_ENTER):
+                label, fn = MENU[sel]
+                if fn is None: break
+                # capture output of fn
+                import io, contextlib
+                buf = io.StringIO()
+                try:
+                    with contextlib.redirect_stdout(buf):
+                        fn()
+                except Exception as e:
+                    buf.write(f"\n[ERROR] {e}")
+                output = buf.getvalue().splitlines() or ["(no output)"]
+    curses.wrapper(loop)
+
+def main():
+    p = argparse.ArgumentParser(prog="tweakctl", description="Linux hibernation/S3/plymouth/ctOS tuner for Arch, Ubuntu, Fedora")
+    p.add_argument("--version", action="version", version=VERSION)
+    sub = p.add_subparsers(dest="command")
+    hib = sub.add_parser("hibernate"); hib.add_argument("action", choices=["check","enable"])
+    s3 = sub.add_parser("s3"); s3.add_argument("action", choices=["check","enable","set-deep","set-s2idle"])
+    pl = sub.add_parser("plymouth"); pl.add_argument("action", choices=["check","apply"]); pl.add_argument("--theme")
+    so = sub.add_parser("sound"); so.add_argument("action", choices=["list","apply"]); so.add_argument("--name"); so.add_argument("--volume", default="0.7")
+    sub.add_parser("update-check")
+    sub.add_parser("tui")
+    a = p.parse_args()
+    if a.command == "tui" or a.command is None:
+        tui()
+        return
+    if a.command == "hibernate":
+        hibernate_check() if a.action=="check" else hibernate_enable()
+    elif a.command == "s3":
+        if a.action == "check": s3_check()
+        elif a.action in ("enable","set-deep"): s3_set("deep")
+        else: s3_set("s2idle")
+    elif a.command == "plymouth":
+        plymouth_check() if a.action=="check" else plymouth_apply(a.theme)
+    elif a.command == "sound":
+        sound_list() if a.action=="list" else sound_apply(a.name or input("Sound name/path: "), a.volume)
+    elif a.command == "update-check":
+        update_check()
+    else:
+        p.print_help()
+
+if __name__ == "__main__":
+    main()
