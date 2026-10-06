@@ -11,8 +11,16 @@ Plays an audio file in every active graphical session. Uses `setpriv` (not `runu
 ctos-sound /path/to/sound.ogg [volume]
 ```
 
-### Sound files — `/usr/share/sounds/ctos/`
-`ctos-shutdown.ogg`, `ctos-boot.ogg`
+### Sound files
+- `/usr/share/sounds/ctos/ctos-shutdown.ogg`
+- `~/.local/share/sounds/ctos-boot.ogg`
+
+**Play them directly from this README** (opens in your browser and plays):
+
+- [▶ ctos-boot.ogg](https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/main/ctos-sounds/ctos-boot.ogg)
+- [▶ ctos-shutdown.ogg](https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/main/ctos-sounds/ctos-shutdown.ogg)
+
+> GitHub markdown strips inline `<audio>` tags, so these are direct links to the raw audio files — clicking plays them natively in your browser. To listen locally: `pw-play ctos-boot.ogg`.
 
 ### Boot sound — `~/.config/systemd/user/ctos-boot-sound.service`
 Plays `ctos-boot.ogg` at login. Works on KDE/GNOME/any session using systemd user manager + PipeWire.
@@ -35,7 +43,7 @@ Plays `ctos-boot.ogg` at login. Works on KDE/GNOME/any session using systemd use
 
 ## Bundled files
 - `ctos-sound` → copy to `/usr/local/bin/`
-- `ctos-shutdown.ogg` / `ctos-boot.ogg` → copy to `/usr/share/sounds/ctos/` (boot sound expects `~/.local/share/sounds/ctos-boot.ogg`)
+- `ctos-shutdown.ogg` → copy to `/usr/share/sounds/ctos/`, `ctos-boot.ogg` → copy to `~/.local/share/sounds/`
 - `ctos-hibernate-on.service`, `ctos-hibernate-off.service`, `ctos-sound-shutdown.service` → `/etc/systemd/system/`, then `sudo systemctl enable <name>`
 - `ctos-boot-sound.service` → `~/.config/systemd/user/`, then `systemctl --user enable ctos-boot-sound.service`
 - `ctos-gen.sh`, `ctos-shutdown-gen.sh`, `ctos-sound-helper.sh` — sound generation helpers

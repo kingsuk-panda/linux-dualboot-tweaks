@@ -59,6 +59,8 @@ UUID=1605ff27-5303-47c9-9831-c098620d98e6  none  swap  defaults  0 0
 systemctl hibernate
 ```
 
+![Verified swap check](pictures/swap-check.png)
+
 ## Limitations
 - Never hibernate while the Windows NTFS partition (`sda4`) is mounted, and disable Windows Fast Startup so Windows itself isn't in a hibernated state at the same time.
 - If resume fails, your session is lost — check `journalctl -b` for `PM: hibernation` messages.

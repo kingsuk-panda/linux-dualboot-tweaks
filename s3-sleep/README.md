@@ -10,8 +10,10 @@ echo deep | sudo tee /sys/power/mem_sleep   # temporary, one boot
 ## Current state (this machine)
 ```bash
 cat /sys/power/mem_sleep
-# s2idle [deep]      <- deep is the active mode (bracketed)
+# s2idle [deep]
 ```
+
+![Selected S3 deep in /sys/power/mem_sleep](pictures/mem-sleep-check.png)
 
 ## How to set
 Add to kernel cmdline:

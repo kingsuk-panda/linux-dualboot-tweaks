@@ -8,6 +8,7 @@ Custom boot splash with the `watch-dogs` theme. Keywords: arch plymouth watch-do
 
 [▶ Watch the boot animation video (MP4)](watchdogs-boot.mp4)
 
+> GitHub strips inline `<video>`/`<audio>` tags from README files, so the animation is embedded as an inline GIF and the MP4 is linked for browser playback. Click the link to play the video on GitHub (raw-URL audio/video links play natively in your browser).
 ## Config — `/etc/plymouth/plymouthd.conf`
 ```ini
 [Daemon]
