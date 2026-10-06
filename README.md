@@ -15,6 +15,8 @@ A practical, tested guide to **hibernating a Linux PC/laptop**, enabling **S3 de
 
 ## Quick answer: How do I hibernate my Linux laptop?
 
+![Project desktop with custom theme](pictures/desktop-setup.png)
+
 1. Create swap ≥ RAM (partition or file) and note its UUID (`blkid`).
 2. Add `resume=UUID=<uuid>` to the kernel command line (GRUB/grubby per distro).
 3. Add the `resume` initramfs hook and rebuild (`mkinitcpio -P` / `update-initramfs -u` / `dracut`).

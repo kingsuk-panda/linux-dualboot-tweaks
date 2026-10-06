@@ -2,6 +2,12 @@
 
 Custom boot splash with the `watch-dogs` theme. Keywords: arch plymouth watch-dogs, change plymouth theme ubuntu fedora.
 
+## Preview
+
+![Watch Dogs Plymouth boot animation](watchdogs-boot.gif)
+
+[▶ Watch the boot animation video (MP4)](watchdogs-boot.mp4)
+
 ## Config — `/etc/plymouth/plymouthd.conf`
 ```ini
 [Daemon]
