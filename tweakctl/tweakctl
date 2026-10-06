@@ -5,7 +5,7 @@ Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
 import argparse, os, re, shutil, subprocess, sys, time, urllib.request, json
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -66,6 +66,57 @@ RED = "\033[91m"; GREEN = "\033[92m"; YELLOW = "\033[93m"; BOLD = "\033[1m"; RES
 def ok_line(msg):    print(f"{GREEN}{BOLD}[OK]{RESET} {msg}")
 def fail_line(msg):  print(f"{RED}{BOLD}[FAIL]{RESET} {msg}")
 def warn_line(msg):  print(f"{YELLOW}{BOLD}[WARN]{RESET} {msg}")
+
+# ---------- disclaimer / dual-boot safety ----------
+DISCLAIMER_FILE = os.path.expanduser("~/.config/tweakctl/disclaimer-accepted")
+
+def disclaimer_paragraphs():
+    """Plain-English risk notice — shown on first run and under About."""
+    return [
+        "tweakctl edits low-level system files: the GRUB bootloader config, the "
+        "initramfs, /etc/fstab, Plymouth and systemd units.",
+        "I am NOT responsible for your laptop being bricked, your files being "
+        "lost, or a broken Windows install. There is NO warranty — the tool is "
+        "MIT-licensed and provided 'as is'. Back up your data first and keep a "
+        "recovery/live USB ready.",
+        "Dual-booting Windows? Turn OFF 'Fast Startup' and hibernation inside "
+        "Windows (Power Options) before trusting Linux hibernation, and never "
+        "resume a Linux hibernation after you have booted Windows — Windows "
+        "writes files while it looks 'off', and the resumed session can corrupt "
+        "them. tweakctl cannot check Windows for you.",
+        "Hibernation needs swap at least as big as your RAM. After any change: "
+        "reboot, then test with 'systemctl hibernate'.",
+        "By continuing you accept these risks yourself.",
+    ]
+
+def disclaimer_accepted():
+    return os.path.exists(DISCLAIMER_FILE)
+
+def disclaimer_status():
+    try:
+        return open(DISCLAIMER_FILE).read().strip()
+    except OSError:
+        return None
+
+def save_disclaimer():
+    try:
+        os.makedirs(os.path.dirname(DISCLAIMER_FILE), exist_ok=True)
+        with open(DISCLAIMER_FILE, "w") as f:
+            f.write(f"accepted {time.strftime('%Y-%m-%d')} tweakctl {VERSION}\n")
+    except OSError:
+        pass
+
+def windows_present():
+    """True if a Windows/NTFS/BitLocker partition is visible (best effort)."""
+    if not has("lsblk"):
+        return False
+    r = run(["lsblk", "-rno", "NAME,FSTYPE,LABEL"], check=False)
+    for line in (r.stdout or "").splitlines():
+        p = line.split()
+        if len(p) > 1 and (p[1].lower() in ("ntfs", "bitlocker")
+                           or "windows" in " ".join(p[2:]).lower()):
+            return True
+    return False
 
 # ---------- hibernation ----------
 def _uuid_of(dev):
@@ -131,6 +182,11 @@ def hibernation_state():
     if os.path.exists("/etc/initramfs-tools"):
         items.append(("ok", "Ubuntu initramfs-tools RESUME= set.") if has_initramfs_tools
                      else ("fail", "Ubuntu initramfs-tools RESUME= missing."))
+    if windows_present():
+        items.append(("warn", "Windows install detected (dual-boot): turn OFF 'Fast Startup' "
+                              "and hibernation inside Windows before testing hibernate, and "
+                              "never resume a Linux hibernation after booting Windows — it "
+                              "can corrupt your Windows install."))
     ready = bool("disk" in st and swaps and has_resume_param and in_fstab
                  and (has_mkcpio or has_initramfs_tools or os.path.exists("/usr/bin/dracut")))
     return ready, items
@@ -156,7 +212,8 @@ def hibernate_enable():
         for line in open("/proc/swaps").read().splitlines()[1:]:
             active.append(line.split()[0])
     if not active:
-        die("No swap active. Create swap >= RAM first.")
+        die("No swap is active — hibernation needs swap at least as big as your "
+            "RAM. Create swap first, then re-run this.")
     # Prefer the UUID of an *active* swap device, then any swap partition.
     swap_uuid = None
     for dev in active:
@@ -193,12 +250,17 @@ def hibernate_enable():
         run(["grubby","--update-kernel=ALL",f"--args=resume=UUID={swap_uuid}"], sudo=True)
         run(["dracut","--regenerate-all","--force"], sudo=True)
     else:
-        print(f"Distro '{d}' not fully supported for auto-setup. Add resume=UUID={swap_uuid} manually.")
+        print(f"Distro '{d}' is not fully supported for automatic setup. "
+              f"Add this to your kernel arguments manually: resume=UUID={swap_uuid}")
     # fstab
     fstab = open("/etc/fstab").read()
     if swap_uuid not in fstab:
         write_root("/etc/fstab", fstab + f"UUID={swap_uuid} none swap defaults 0 0\n")
-    print("Hibernation enabled. Reboot and test: systemctl hibernate")
+    ok_line("Hibernation is configured.")
+    print("Next steps:  1) reboot   2) test it:  systemctl hibernate")
+    if windows_present():
+        warn_line("Windows dual-boot: turn OFF Fast Startup in Windows "
+                  "(Power Options) before testing — see: tweakctl disclaimer")
 
 # ---------- s3 ----------
 def s3_state():
@@ -227,13 +289,16 @@ def s3_check():
         if "[deep]" in line:
             ok_line("S3 (deep) is currently the ACTIVE suspend mode.")
         else:
-            warn_line("S3 (deep) is NOT the active mode — run: sudo tweakctl s3 set-deep")
+            warn_line("S3 (deep) is NOT the active mode — run: sudo tweakctl s3 set-deep "
+                      "(or 'S3 sleep > Deep sleep' in the TUI)")
     else:
-        fail_line("/sys/power/mem_sleep missing — ACPI issue.")
+        fail_line("/sys/power/mem_sleep is missing — the kernel/ACPI does not "
+                  "expose sleep modes on this machine.")
     if "mem_sleep_default=deep" in open("/proc/cmdline").read():
         ok_line("mem_sleep_default=deep persists across reboots.")
     else:
-        warn_line("mem_sleep_default=deep NOT set on kernel cmdline.")
+        warn_line("mem_sleep_default=deep is NOT set on the kernel cmdline — "
+                  "run: sudo tweakctl s3 set-deep")
     print()
     if os.path.exists("/sys/power/mem_sleep") and "[deep]" in open("/sys/power/mem_sleep").read():
         print(f"{GREEN}{BOLD}>>> S3 DEEP SLEEP IS ACTIVE <<<{RESET}")
@@ -251,21 +316,22 @@ def s3_set(mode="deep"):
     elif d in ("fedora","rhel","centos","rocky","alma"):
         run(["grubby","--update-kernel=ALL",f"--args=mem_sleep_default={mode}"], sudo=True)
     else:
-        die(f"Distro '{d}' not supported for S3 toggle.")
+        die(f"Distro '{d}' is not supported for the S3 toggle "
+            f"(needs Arch, Ubuntu/Debian or Fedora/RHEL).")
     # try to apply immediately for the current session too
     run(["bash","-c",f"echo {mode} > /sys/power/mem_sleep"], sudo=True, check=False)
     if os.path.exists("/sys/power/mem_sleep") and f"[{mode}]" in open("/sys/power/mem_sleep").read():
-        print(f"S3 mode set to '{mode}' — active now and saved across reboots.")
+        print(f"Suspend mode '{mode}' is active now and saved across reboots.")
     else:
-        print(f"mem_sleep_default={mode} saved — reboot to apply.")
+        print(f"Saved mem_sleep_default={mode} — reboot to apply it.")
 
 # ---------- plymouth ----------
 def plymouth_check():
-    print(f"{BOLD}== Plymouth check =={RESET}")
+    print(f"{BOLD}== Plymouth check (boot splash) =={RESET}")
     if has('plymouth') or os.path.exists('/usr/share/plymouth'):
         ok_line("Plymouth is installed.")
     else:
-        fail_line("Plymouth is NOT installed.")
+        fail_line("Plymouth is NOT installed (boot splash unavailable).")
     cfg = "/etc/plymouth/plymouthd.conf"
     if os.path.exists(cfg):
         m = re.search(r"Theme=(.+)", open(cfg).read())
@@ -275,13 +341,14 @@ def plymouth_check():
         print(f"  Installed themes: {', '.join(os.listdir(themes_dir))}")
     if os.path.exists('/etc/mkinitcpio.conf'):
         if 'plymouth' in open('/etc/mkinitcpio.conf').read():
-            ok_line("mkinitcpio has plymouth hook.")
+            ok_line("mkinitcpio has the plymouth hook (splash shows early in boot).")
         else:
-            fail_line("mkinitcpio MISSING plymouth hook.")
+            fail_line("mkinitcpio is missing the plymouth hook — the boot splash "
+                      "will not show on Arch.")
     if 'splash' in open('/proc/cmdline').read():
-        ok_line("Kernel has 'splash'.")
+        ok_line("Kernel cmdline has 'splash'.")
     else:
-        warn_line("Kernel missing 'splash' — plymouth won't show.")
+        warn_line("Kernel cmdline has no 'splash' — Plymouth will not show at boot.")
 
 def current_plymouth_theme():
     cfg = "/etc/plymouth/plymouthd.conf"
@@ -419,7 +486,7 @@ def plymouth_apply(theme):
     if d=="arch": run(["mkinitcpio","-P"], sudo=True)
     elif d in ("ubuntu","debian"): run(["update-initramfs","-u"], sudo=True)
     elif d in ("fedora","rhel","centos"): run(["dracut","--regenerate-all","--force"], sudo=True)
-    print(f"Plymouth theme set to '{theme}'. Reboot.")
+    ok_line(f"Boot theme set to '{theme}' — reboot to see it at startup.")
 
 # ---------- ctos sound ----------
 SOUNDS = {
@@ -458,7 +525,8 @@ def sound_choices():
     return out
 
 def sound_list():
-    print("Available built-in ctOS sounds:")
+    print(f"{BOLD}== Sounds found =={RESET}")
+    print("Bundled ctOS sounds:")
     for name, path in SOUNDS.items():
         expanded = os.path.expanduser(path)
         print(f"  {name:15s} {'present' if os.path.exists(expanded) else 'missing'} ({expanded})")
@@ -483,7 +551,7 @@ def sound_preview(name=None):
     elif name in SOUNDS:
         path = os.path.expanduser(SOUNDS[name])
     if not path or not os.path.exists(path):
-        die(f"Sound '{name}' not found. Run `tweakctl sound list`.")
+        die(f"Sound '{name}' was not found on this system. Run: tweakctl sound list")
     pl = player()
     if not pl:
         die("No audio player found (need pw-play, paplay, ffplay or aplay).")
@@ -500,7 +568,7 @@ def sound_apply(name_or_path, volume="0.7"):
     elif name_or_path in SOUNDS:
         path = os.path.expanduser(SOUNDS[name_or_path])
     if not path or not os.path.exists(path):
-        die(f"Sound '{name_or_path}' not found. Run `tweakctl sound list`.")
+        die(f"Sound '{name_or_path}' was not found on this system. Run: tweakctl sound list")
     pl = player()
     if not pl:
         die("No audio player found (need pw-play, paplay, ffplay or aplay).")
@@ -510,7 +578,7 @@ def sound_apply(name_or_path, volume="0.7"):
         play_cmd = f"/usr/bin/paplay --volume={int(float(volume)*65536)} {path}"
     else:
         play_cmd = f"{pl} {path}"
-    print(f"Applying boot sound: {path} (volume {volume}, player {pl.split()[0]})")
+    print(f"Setting startup sound: {path} (volume {volume}, player {pl.split()[0]})")
     unit = os.path.expanduser("~/.config/systemd/user/ctos-boot-sound.service")
     os.makedirs(os.path.dirname(unit), exist_ok=True)
     if os.path.exists(unit):
@@ -523,8 +591,8 @@ def sound_apply(name_or_path, volume="0.7"):
                     "[Install]\nWantedBy=default.target\n")
     run(["systemctl","--user","daemon-reload"], check=False)
     run(["systemctl","--user","enable","ctos-boot-sound.service"], check=False)
-    ok_line(f"Boot sound set: {path}")
-    print(f"  Preview: {play_cmd}")
+    ok_line(f"Startup sound set: {path} (plays at every login)")
+    print(f"  Test command: {play_cmd}")
 
 # ---------- update check ----------
 def update_check():
@@ -535,11 +603,11 @@ def update_check():
         latest = data["tag_name"].lstrip("v")
         if latest != VERSION:
             print(f"Update available: {VERSION} → {latest}")
-            print(f"Download: {data['html_url']}")
+            print(f"Download & install: {data['html_url']}")
         else:
             print(f"tweakctl is up to date (v{VERSION}).")
     except Exception as e:
-        print(f"Could not check for updates: {e}")
+        print(f"Could not check for updates (offline?): {e}")
 
 # ---------- TUI ----------
 def tui():
@@ -551,9 +619,9 @@ def tui():
 
     # label / action / root? / already(val)? -> (title, why[]) / suspend?
     MENU = [
-        dict(label="Hibernate  > Check status",
+        dict(label="Hibernate  > Check if it works",
              action=lambda: hibernate_check()),
-        dict(label="Hibernate  > Enable",
+        dict(label="Hibernate  > Set it up (enable)",
              action=lambda: hibernate_enable(), root=True,
              already=lambda v: hibernation_ready(),
              title="HIBERNATION IS ALREADY ENABLED",
@@ -562,9 +630,9 @@ def tui():
                   "(your other kernel params are kept), rebuilds the initramfs "
                   "(takes 1-2 min) and regenerates grub.cfg.",
                   "Only continue if you changed your swap or hibernation stopped working."]),
-        dict(label="S3 sleep   > Check",
+        dict(label="S3 sleep   > Check sleep mode",
              action=lambda: s3_check()),
-        dict(label="S3 sleep   > Set deep",
+        dict(label="S3 sleep   > Deep sleep (S3)",
              action=lambda: s3_set("deep"), root=True,
              already=lambda v: s3_state()[1],
              title="S3 DEEP SLEEP IS ALREADY ACTIVE",
@@ -573,7 +641,7 @@ def tui():
                   "Re-running rewrites the GRUB cmdline and regenerates grub.cfg — "
                   "you will see no visible change.",
                   "Cancel if you only wanted to check the status."]),
-        dict(label="S3 sleep   > Set s2idle",
+        dict(label="S3 sleep   > Shallow (s2idle)",
              action=lambda: s3_set("s2idle"), root=True,
              already=lambda v: s3_active_mode() == "s2idle",
              title="S2IDLE IS ALREADY THE ACTIVE MODE",
@@ -581,10 +649,10 @@ def tui():
                   "uses more battery while suspended.",
                   "Setting it again rewrites the GRUB cmdline and regenerates "
                   "grub.cfg with no visible change.",
-                  "Tip: 'S3 sleep > Set deep' uses less power while suspended."]),
-        dict(label="Plymouth   > Check",
+                  "Tip: 'S3 sleep > Deep sleep (S3)' uses less power while suspended."]),
+        dict(label="Plymouth   > Check boot theme",
              action=lambda: plymouth_check()),
-        dict(label="Plymouth   > Apply theme",
+        dict(label="Plymouth   > Change boot theme",
              action="CHOOSE_THEME", root=True,
              already=lambda v: v is not None and v == current_plymouth_theme(),
              title="THAT THEME IS ALREADY ACTIVE",
@@ -594,22 +662,22 @@ def tui():
                   "Cancel if you meant to choose a different theme."]),
         dict(label="Plymouth   > Preview animation",
              action="CHOOSE_THEME_PREVIEW", root=True, suspend=True),
-        dict(label="Sound      > List",
+        dict(label="Sound      > List sounds",
              action=lambda: sound_list()),
-        dict(label="Sound      > Preview (listen)",
+        dict(label="Sound      > Preview a sound",
              action="CHOOSE_SOUND_PREVIEW"),
-        dict(label="Sound      > Apply (boot sound)",
+        dict(label="Sound      > Set startup sound",
              action="CHOOSE_SOUND_APPLY",
              already=lambda v: os.path.exists(UNIT),
-             title="A BOOT SOUND IS ALREADY CONFIGURED",
+             title="A STARTUP SOUND IS ALREADY CONFIGURED",
              why=["Your systemd user unit ctos-boot-sound.service already plays "
-                  "a sound at login.",
+                  "a sound at every login.",
                   "Continuing replaces the current sound with your selection — "
                   "nothing else changes.",
-                  "Cancel and run 'Sound > List' first if you want to browse."]),
+                  "Cancel and run 'Sound > List sounds' first if you want to browse."]),
         dict(label="Update     > Check for updates",
              action=lambda: update_check()),
-        dict(label="About tweakctl",
+        dict(label="About & disclaimer",
              action="ABOUT"),
         dict(label="Quit", action=None),
     ]
@@ -683,6 +751,53 @@ def tui():
             if k in (ord("y"), ord("Y")):
                 return True
             if k in (ord("n"), ord("N"), 27, ord("q"), ord("Q"), 10, 13):
+                return False
+
+    def disclaimer_screen(stdscr):
+        """First-run risk notice. True only after an explicit 'y' (then saved)."""
+        paras = disclaimer_paragraphs()
+        h, w = stdscr.getmaxyx()
+        box_w = min(w - 2, 84)
+        x0 = max(0, (w - box_w) // 2)
+        text_w = box_w - 6
+        lines = []
+        for i, para in enumerate(paras):
+            lines += wrap(para, text_w)
+            if i != len(paras) - 1:
+                lines.append("")
+        max_lines = max(3, h - 8)
+        if len(lines) > max_lines:
+            lines = lines[:max_lines - 1] + ["… (resize the window to read the rest)"]
+        box_h = len(lines) + 6           # 2 borders + title + blank + question + footer
+        y0 = max(1, (h - box_h) // 2)
+        red = curses.color_pair(2) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
+        body = curses.color_pair(3) if curses.has_colors() else 0
+        stdscr.erase()
+        put(stdscr, y0,     x0, "┌" + "─" * (box_w - 2) + "┐", red)
+        put(stdscr, y0 + 1, x0, "│", red)
+        put(stdscr, y0 + 1, x0 + 2, "⚠ USE AT YOUR OWN RISK — READ THIS FIRST", red)
+        put(stdscr, y0 + 1, x0 + box_w - 1, "│", red)
+        y = y0 + 2
+        for ln in lines:
+            put(stdscr, y, x0, "│", red)
+            put(stdscr, y, x0 + 3, ln, body)
+            put(stdscr, y, x0 + box_w - 1, "│", red)
+            y += 1
+        put(stdscr, y, x0, "│", red)
+        put(stdscr, y, x0 + 3, "Do you accept these risks?", curses.A_BOLD)
+        put(stdscr, y, x0 + box_w - 1, "│", red)
+        y += 1
+        put(stdscr, y, x0, "│", red)
+        put(stdscr, y, x0 + 3, "[y] I understand — continue    [n] No — quit", curses.A_REVERSE)
+        put(stdscr, y, x0 + box_w - 1, "│", red)
+        put(stdscr, y0 + box_h - 1, x0, "└" + "─" * (box_w - 2) + "┘", red)
+        stdscr.refresh()
+        while True:                      # Enter alone does NOT accept (default = no)
+            k = stdscr.getch()
+            if k in (ord("y"), ord("Y")):
+                save_disclaimer()
+                return True
+            if k in (ord("n"), ord("N"), 27, ord("q"), ord("Q")):
                 return False
 
     def read_key(scr):
@@ -805,24 +920,54 @@ def tui():
             with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
                 body()
 
-    def line_attr(scr, line):
-        if line.startswith("[OK]"):
-            return curses.color_pair(1) | curses.A_BOLD
-        if line.startswith("[FAIL]"):
-            return curses.color_pair(2) | curses.A_BOLD
-        if line.startswith("[WARN]"):
-            return curses.color_pair(3) | curses.A_BOLD
-        if ">>>" in line:                      # summary banner
+    def line_level(line):
+        """Colour class of an output line (kept across wrapped continuations)."""
+        if line.startswith("[OK]"):   return "ok"
+        if line.startswith("[FAIL]"): return "fail"
+        if line.startswith("[WARN]"): return "warn"
+        if ">>>" in line:                     # summary banner
             if "NOT SUPPORTED" in line or "NOT FULLY" in line:
-                return curses.color_pair(2) | curses.A_BOLD
+                return "banner-bad"
             if "NOT" in line:
-                return curses.color_pair(3) | curses.A_BOLD
-            return curses.color_pair(1) | curses.A_BOLD
-        if line.startswith("=="):
-            return curses.A_BOLD
-        if line.startswith("  [..]"):
-            return curses.color_pair(4)
-        return 0
+                return "banner-warn"
+            return "banner-ok"
+        if line.startswith("=="):     return "head"
+        if line.startswith("  [..]"): return "info"
+        return ""
+
+    def fit(lines, width):
+        """Wrap output lines to the pane width so nothing is cut off.
+        Continuation rows carry a 3-space indent, so they wrap at width-3."""
+        out = []
+        cont = max(12, width - 3)
+        for ln in lines:
+            lv = line_level(ln)
+            if len(ln) <= width:
+                parts = [ln]
+            else:
+                parts = []
+                for p in (wrap(ln, cont) or [ln]):
+                    while len(p) > cont:      # hard-split words longer than the pane
+                        parts.append(p[:cont])
+                        p = p[cont:]
+                    parts.append(p)
+            for i, p in enumerate(parts):
+                out.append((("   " + p) if i else p, lv))
+        return out
+
+    def level_attr(lv):
+        if not curses.has_colors():
+            return curses.A_BOLD if lv.startswith("banner") or lv == "head" else 0
+        return {
+            "ok":          curses.color_pair(1) | curses.A_BOLD,
+            "banner-ok":   curses.color_pair(1) | curses.A_BOLD,
+            "fail":        curses.color_pair(2) | curses.A_BOLD,
+            "banner-bad":  curses.color_pair(2) | curses.A_BOLD,
+            "warn":        curses.color_pair(3) | curses.A_BOLD,
+            "banner-warn": curses.color_pair(3) | curses.A_BOLD,
+            "info":        curses.color_pair(4),
+            "head":        curses.A_BOLD,
+        }.get(lv, 0)
 
     def loop(stdscr):
         nonlocal sel, offset
@@ -835,16 +980,28 @@ def tui():
             curses.init_pair(4, curses.COLOR_CYAN, -1)
         curses.curs_set(0)
         stdscr.keypad(True)
-        output = [
-            f"tweakctl v{ver_short} — {did} — ↑/↓ or j/k · Enter run · PgUp/PgDn scroll · q quit",
-            "Pick an action on the left; its output appears here.",
-            "",
-        ]
+        try:
+            curses.set_escdelay(50)      # Esc must cancel/quit instantly (ncurses: 1000ms)
+        except (AttributeError, curses.error):
+            pass
+        if not disclaimer_accepted():
+            if not disclaimer_screen(stdscr):        # 'n'/Esc/q — leave untouched
+                return
+        output = None                  # built on the first frame (pane width known)
         offset = 0                      # lines scrolled back from the bottom
+        top_view = False                # next output starts at its first line
         while True:
             stdscr.erase()
             h, w = stdscr.getmaxyx()
             out_x = min(36, max(24, w // 2))
+            pane_w = w - out_x - 1
+            if output is None:
+                output = fit([
+                    f"tweakctl v{ver_short} — {did} — ↑/↓ or j/k · Enter run · PgUp/PgDn scroll · q quit",
+                    "Pick an action on the left; its output appears on the right.",
+                    "New here? Start with 'About & disclaimer' at the bottom.",
+                    "",
+                ], pane_w)
 
             put(stdscr, 0, 0, f" tweakctl v{ver_short} · {did} ", curses.A_REVERSE)
             put(stdscr, 0, out_x, " Output ", curses.A_REVERSE)
@@ -860,10 +1017,13 @@ def tui():
                     put(stdscr, i + 2, 0, f"  {entry['label']}", dim)
 
             body = h - 4               # header(2) + footer(1) + spare
+            if top_view:                # show long informational output from the top
+                offset = max(0, len(output) - body)
+                top_view = False
             start = max(0, len(output) - body - offset)
             end = max(0, len(output) - offset)
-            for j, line in enumerate(output[start:end]):
-                put(stdscr, j + 2, out_x, line, line_attr(stdscr, line))
+            for j, (line, lv) in enumerate(output[start:end]):
+                put(stdscr, j + 2, out_x, line, level_attr(lv))
 
             put(stdscr, h - 1, 0, " ↑/↓ j/k Enter · PgUp/PgDn scroll · q quit ",
                 curses.A_REVERSE)
@@ -896,13 +1056,17 @@ def tui():
                 val = None
                 if isinstance(action, str):
                     if action == "ABOUT":
-                        output = [
+                        status = disclaimer_status()
+                        lines = [
                             f"tweakctl v{ver_short} — MIT licensed (ctOS sounds/Watch Dogs art © Ubisoft)",
                             f"Detected distro: {did}",
                             f"Repository: https://github.com/{GH_REPO}",
-                            "Docs, packages and sources: see the README.",
+                            f"Disclaimer: {status if status else 'NOT accepted yet'}",
                             "",
-                        ]
+                            "-- Disclaimer (full text) --",
+                        ] + disclaimer_paragraphs()
+                        output = fit(lines, pane_w)
+                        top_view = True
                         continue
                     themes = installed_plymouth_themes()
                     cur_theme = current_plymouth_theme()
@@ -912,38 +1076,41 @@ def tui():
                                         if v == cur_theme), 0)
                     if action == "CHOOSE_THEME":
                         if not theme_items:
-                            output = ["[FAIL] No plymouth themes installed.", ""]
+                            output = fit(["[FAIL] No plymouth themes installed.", ""], pane_w)
                             continue
-                        val = choose_list(stdscr, " Choose a theme to apply ",
+                        val = choose_list(stdscr, " Change the boot theme — pick one ",
                                           theme_items, theme_start)
                     elif action == "CHOOSE_THEME_PREVIEW":
                         if not theme_items:
-                            output = ["[FAIL] No plymouth themes installed.", ""]
+                            output = fit(["[FAIL] No plymouth themes installed.", ""], pane_w)
                             continue
-                        val = choose_list(stdscr, " Preview which theme? ",
+                        val = choose_list(stdscr, " Preview which boot animation? ",
                                           theme_items, theme_start)
                     elif action in ("CHOOSE_SOUND_PREVIEW", "CHOOSE_SOUND_APPLY"):
                         choices = sound_choices()
                         if not choices:
-                            output = ["[FAIL] No sound files found — see `tweakctl sound list`.", ""]
+                            output = fit(["[FAIL] No sound files found — run: tweakctl sound list",
+                                          ""], pane_w)
                             continue
                         start = next((i for i, (_, v) in enumerate(choices)
                                       if v == current_boot_sound()), 0)
-                        title = (" Preview which sound? " if action == "CHOOSE_SOUND_PREVIEW"
-                                 else " Choose the boot sound ")
+                        title = (" Which sound do you want to hear? "
+                                 if action == "CHOOSE_SOUND_PREVIEW"
+                                 else " Pick your startup sound ")
                         val = choose_list(stdscr, title, choices, start)
                     if val is None:
-                        output = ["Cancelled — nothing was changed.", ""]
+                        output = fit(["Cancelled — nothing was changed.", ""], pane_w)
                         continue
                 # 2) already-enabled confirmation
                 already = entry.get("already")
                 if already and already(val):
                     if not confirm_screen(stdscr, entry["title"], entry["why"]):
-                        output = ["Cancelled — nothing was changed.", ""]
+                        output = fit(["Cancelled — nothing was changed.", ""], pane_w)
                         continue
                 # 3) sudo (after the user has said yes)
                 if entry.get("root") and not ensure_sudo(stdscr):
-                    output = ["[FAIL] sudo authentication failed — action cancelled.", ""]
+                    output = fit(["[FAIL] sudo authentication failed — action cancelled.",
+                                  ""], pane_w)
                     continue
                 # 4) run
                 if entry.get("suspend"):
@@ -958,7 +1125,7 @@ def tui():
                     finally:
                         curses.reset_prog_mode()
                         stdscr.refresh()
-                    output = [f"Ran: {entry['label']}", "Back in tweakctl.", ""]
+                    output = fit([f"Ran: {entry['label']}", "Back in tweakctl.", ""], pane_w)
                 else:
                     buf = io.StringIO()
                     try:
@@ -970,21 +1137,46 @@ def tui():
                     except Exception as e:
                         buf.write(f"\n[ERROR] {e}\n")
                     cleaned = ANSI.sub("", buf.getvalue()) or "(no output)"
-                    output = cleaned.splitlines()
+                    output = fit(cleaned.splitlines(), pane_w)
 
     sel, offset = 0, 0
     curses.wrapper(loop)
 
 def main():
-    p = argparse.ArgumentParser(prog="tweakctl", description="Linux hibernation/S3/plymouth/ctOS tuner for Arch, Ubuntu, Fedora")
+    ex = """examples:
+  tweakctl                       interactive menu (the easy way)
+  tweakctl hibernate check       is hibernation working on this machine?
+  tweakctl hibernate enable      set up hibernation (needs root)
+  tweakctl s3 check              is deep (S3) sleep available / active?
+  tweakctl plymouth check        is a boot splash configured?
+  tweakctl plymouth preview      watch the boot animation (--theme NAME to try one)
+  tweakctl sound list            list the bundled ctOS sounds
+  tweakctl update-check          check GitHub for a new release
+
+DISCLAIMER: tweakctl rewrites GRUB / initramfs / systemd config at your own
+risk. NO WARRANTY — you are responsible for your laptop. Back up your data,
+keep a recovery USB ready, and if you dual-boot Windows, turn OFF Fast
+Startup in Windows first. Full text:  tweakctl disclaimer"""
+    p = argparse.ArgumentParser(
+        prog="tweakctl",
+        description="Set up hibernation, deep (S3) sleep, the boot splash (Plymouth) "
+                    "and ctOS startup sounds on Linux (Arch, Ubuntu/Debian, "
+                    "Fedora/RHEL) — interactively or from the shell.",
+        epilog=ex,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--version", action="version", version=VERSION)
     sub = p.add_subparsers(dest="command")
-    hib = sub.add_parser("hibernate"); hib.add_argument("action", choices=["check","enable"])
-    s3 = sub.add_parser("s3"); s3.add_argument("action", choices=["check","enable","set-deep","set-s2idle"])
-    pl = sub.add_parser("plymouth"); pl.add_argument("action", choices=["check","apply","preview"]); pl.add_argument("--theme")
-    so = sub.add_parser("sound"); so.add_argument("action", choices=["list","apply","preview"]); so.add_argument("--name"); so.add_argument("--volume", default="0.7")
-    sub.add_parser("update-check")
-    sub.add_parser("tui")
+    hib = sub.add_parser("hibernate", help="hibernation: check if it works / set it up")
+    hib.add_argument("action", choices=["check","enable"])
+    s3 = sub.add_parser("s3", help="deep (S3) sleep: check mode / set mode")
+    s3.add_argument("action", choices=["check","enable","set-deep","set-s2idle"])
+    pl = sub.add_parser("plymouth", help="boot splash: check / change theme / preview")
+    pl.add_argument("action", choices=["check","apply","preview"]); pl.add_argument("--theme")
+    so = sub.add_parser("sound", help="ctOS sounds: list / set startup sound / listen")
+    so.add_argument("action", choices=["list","apply","preview"]); so.add_argument("--name"); so.add_argument("--volume", default="0.7")
+    sub.add_parser("update-check", help="check GitHub for a new tweakctl release")
+    sub.add_parser("disclaimer", help="print the risk disclaimer (read this first)")
+    sub.add_parser("tui", help="interactive menu")
     a = p.parse_args()
     if a.command is None:
         if sys.stdin.isatty() and sys.stdout.isatty():
@@ -1020,6 +1212,11 @@ def main():
             sound_apply(a.name or input("Sound name/path: "), a.volume)
     elif a.command == "update-check":
         update_check()
+    elif a.command == "disclaimer":
+        print(f"tweakctl disclaimer — read before using this tool\n{'=' * 54}")
+        for para in disclaimer_paragraphs():
+            print(f"\n{para}")
+        print()
     else:
         p.print_help()
 

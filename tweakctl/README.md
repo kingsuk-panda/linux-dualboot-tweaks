@@ -20,7 +20,7 @@ npm i -g tweakctl      # same tool, shipped as an npm package
 ```bash
 cd tweakctl/packaging && makepkg -si
 # or from the release asset:
-sudo pacman -U tweakctl-0.5.0-1-any.pkg.tar.zst
+sudo pacman -U tweakctl-0.6.0-1-any.pkg.tar.zst
 ```
 To publish to the AUR, create an AUR4 account, then:
 ```bash
@@ -30,13 +30,13 @@ cp PKGBUILD tweakctl/; cd tweakctl && makepkg --printsrcinfo > .SRCINFO && git a
 
 ### Ubuntu / Debian (.deb)
 ```bash
-sudo dpkg -i tweakctl_0.5.0_all.deb
+sudo dpkg -i tweakctl_0.6.0_all.deb
 # or build: cd tweakctl/packaging && ./build.sh
 ```
 
 ### Fedora / RHEL (.rpm)
 ```bash
-sudo rpm -i tweakctl-0.5.0-1.noarch.rpm
+sudo rpm -i tweakctl-0.6.0-1.noarch.rpm
 # or build: cd tweakctl/packaging && ./build.sh
 ```
 
@@ -62,14 +62,20 @@ tweakctl sound list
 tweakctl sound preview --name ctos-boot     # listen before applying
 tweakctl sound apply --name ctos-boot --volume 0.7
 tweakctl update-check        # checks GitHub for newer release
+tweakctl disclaimer          # the full risk disclaimer — read it once
 ```
 
-TUI navigation: `↑`/`↓` (or `j`/`k`) to move, `Home`/`End` to jump, `Enter` to run, `PgUp`/`PgDn` to scroll long output, `q` (or `Esc`) to quit. **Pickers** (themes, sounds) use the same keys plus any letter to jump to the next entry starting with it; `Enter` selects, `Esc` cancels.
+**First run:** the TUI shows a red **“USE AT YOUR OWN RISK”** disclaimer once —
+`y` accepts (saved to `~/.config/tweakctl/`), `n` quits without touching
+anything. The same text lives in `tweakctl disclaimer`, in *About & disclaimer*
+and in the repo README.
+
+TUI navigation: `↑`/`↓` (or `j`/`k`) to move, `Home`/`End` to jump, `Enter` to run, `PgUp`/`PgDn` to scroll long output, `q` (or `Esc`) to quit. **Pickers** (themes, sounds) use the same keys plus any letter to jump to the next entry starting with it; `Enter` selects, `Esc` cancels. Long output is word-wrapped to the pane — nothing is cut off.
 
 If something is **already enabled** (hibernation working, deep sleep active, theme already selected, boot sound set), the TUI shows an **“Are you sure?”** screen explaining exactly what would change — `y` continues, `n`/`Esc` cancels with nothing modified.
 
 **Previews:**
-- `Sound > Preview (listen)` opens a picker of every sound tweakctl can find (current boot sound marked `• current`) — arrow down, press `Enter`, and it plays.
+- `Sound > Preview a sound` opens a picker of every sound tweakctl can find (current boot sound marked `• current`) — arrow down, press `Enter`, and it plays.
 - `Plymouth > Preview animation` opens a theme picker (active theme marked `• active`); choosing another theme switches to it **temporarily**, plays the real boot splash for ~8 s, then restores your original theme. Falls back to opening the animation as a GIF.
 
 ## How it works
@@ -78,7 +84,14 @@ If something is **already enabled** (hibernation working, deep sleep active, the
 - **Plymouth** switches theme via `plymouth-set-default-theme` and rebuilds initramfs.
 - **Sound** rewrites the systemd user unit to point at the chosen file and reloads it.
 
-## Safety
+## Safety & disclaimer
+- **Use it at your own risk.** The author is not responsible for a bricked
+  laptop, lost data or a broken Windows install — there is no warranty
+  (MIT, “as is”). Back up first, keep a recovery USB ready. The full text is
+  in `tweakctl disclaimer`, in the TUI's *About & disclaimer* screen and in the
+  [README](../README.md#disclaimer).
 - Every mutating command first prints what distro it detected.
 - It never touches the Windows/NTFS partition.
-- Always disable Windows Fast Startup before relying on hibernate on dual-boot.
+- **Dual-boot:** `tweakctl hibernate check` warns automatically when a Windows
+  partition is found. Always disable Windows Fast Startup (and don't resume a
+  Linux hibernation after booting Windows) before relying on hibernate.

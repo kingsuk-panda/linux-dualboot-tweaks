@@ -97,3 +97,24 @@ Full guide with commands and troubleshooting: [hibernation/README.md](hibernatio
   - **GNOME:** install the [Hibernate Status Button](https://extensions.gnome.org/) extension for a Hibernate entry in the power menu.
   - **XFCE/others:** use `systemctl hibernate` or a custom launcher.
 - `ctos-sounds` depends on PipeWire/WirePlumber and the `pw-play` binary; on PulseAudio-only systems use `paplay` instead.
+
+## Disclaimer
+
+**Use everything in this repository at your own risk.**
+
+- `tweakctl` edits low-level system files — the GRUB bootloader config, the
+  initramfs, `/etc/fstab`, Plymouth and systemd units. I am **not responsible**
+  for your laptop being bricked, your data being lost, or a broken Windows
+  install. There is **no warranty**; the code is MIT-licensed and provided
+  “as is”. Back up your data first and keep a recovery/live USB ready.
+- **Dual-booting Windows?** Turn off *Fast Startup* and hibernation inside
+  Windows (Power Options) before relying on Linux hibernation, and never
+  resume a Linux hibernation after you have booted Windows — Windows writes
+  files while it looks “off”, and the resumed session can corrupt them.
+  `tweakctl hibernate check` prints this warning automatically when it finds a
+  Windows partition.
+- The bundled ctOS sounds and the Watch Dogs boot animation are © Ubisoft —
+  they are included for personal use only and are **not** covered by the MIT
+  license.
+- The same disclaimer is shown on the TUI's first run and is always available
+  as `tweakctl disclaimer`.
