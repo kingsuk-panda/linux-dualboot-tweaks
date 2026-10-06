@@ -22,6 +22,7 @@ Same tool is also published as **`npm i -g tweakctl`**, and as native packages (
 
 ```bash
 tweakctl                     # interactive TUI menu (↑/↓, Enter, q)
+tweakctl gui                 # graphical interface (needs tkinter)
 tweakctl hibernate check     # does hibernation work?
 tweakctl hibernate enable    # make it work
 tweakctl s3 set-deep
@@ -31,6 +32,14 @@ tweakctl sound preview --name ctos-boot   # listen first
 tweakctl sound apply --name ctos-boot
 tweakctl update-check
 ```
+
+### GUI app
+
+`tweakctl-gui` (or `tweakctl gui`) is a graphical front-end — same checks, same
+safety dialogs, same actions. Sidebar pages: Dashboard, Hibernation, Sleep (S3),
+Boot splash, Sounds, Updates, About. System changes elevate automatically
+(pkexec or sudo). Install tkinter if missing: `sudo apt install python3-tk`,
+`sudo dnf install python3-tkinter`, or `sudo pacman -S tk`.
 
 ```bash
 cd hibernation && sudo ./setup.sh   # then reboot + systemctl hibernate

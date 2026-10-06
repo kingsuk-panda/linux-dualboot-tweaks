@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Tweakctl (Linux Tweaks)
+GenericName=System Tweaks
+Comment=Hibernation, S3 sleep, Plymouth boot splash and ctOS sounds
+Exec=tweakctl-gui
+Icon=preferences-system
+Categories=Settings;System;
+Terminal=false

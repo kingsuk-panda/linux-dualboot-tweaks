@@ -26,11 +26,13 @@ done
 if [ "$UNINSTALL" = 1 ]; then
   found=0
   for d in "$HOME/.local/bin" /usr/local/bin; do
-    if [ -e "$d/tweakctl" ]; then
-      rm -f "$d/tweakctl" 2>/dev/null || sudo rm -f "$d/tweakctl"
-      echo "Removed $d/tweakctl"
-      found=1
-    fi
+    for f in tweakctl tweakctl-gui; do
+      if [ -e "$d/$f" ]; then
+        rm -f "$d/$f" 2>/dev/null || sudo rm -f "$d/$f"
+        echo "Removed $d/$f"
+        found=1
+      fi
+    done
   done
   [ "$found" = 1 ] || echo "tweakctl is not installed."
   exit 0
@@ -46,19 +48,20 @@ fi
 
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
-if command -v curl >/dev/null 2>&1; then
-  curl -fsSL "$RAW_BASE/tweakctl/tweakctl" -o "$tmp"
-elif command -v wget >/dev/null 2>&1; then
-  wget -qO "$tmp" "$RAW_BASE/tweakctl/tweakctl"
-else
-  echo "curl or wget is required to download tweakctl." >&2; exit 1
-fi
+download() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$1" -o "$2"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$2" "$1"
+  else
+    echo "curl or wget is required to download tweakctl." >&2; exit 1
+  fi
+}
 
-# sanity check: it must be the python script we expect
+download "$RAW_BASE/tweakctl/tweakctl" "$tmp"
 if ! head -1 "$tmp" | grep -q '^#!/usr/bin/env python3'; then
   echo "Download failed — got something that is not tweakctl." >&2; exit 1
 fi
-
 if ! mkdir -p "$DEST" 2>/dev/null; then
   sudo mkdir -p "$DEST"
 fi
@@ -68,8 +71,19 @@ else
   sudo install -m 755 "$tmp" "$DEST/tweakctl"
 fi
 
+tmp2="$(mktemp)"
+download "$RAW_BASE/tweakctl/tweakctl-gui" "$tmp2"
+if ! head -1 "$tmp2" | grep -q '^#!/usr/bin/env python3'; then
+  echo "Download failed — got something that is not tweakctl-gui." >&2; exit 1
+fi
+if [ -w "$DEST" ]; then
+  install -m 755 "$tmp2" "$DEST/tweakctl-gui"
+else
+  sudo install -m 755 "$tmp2" "$DEST/tweakctl-gui"
+fi
+
 ver="$("$DEST/tweakctl" --version 2>/dev/null || echo '?')"
-echo "Installed tweakctl $ver -> $DEST/tweakctl"
+echo "Installed tweakctl $ver -> $DEST/tweakctl (+ tweakctl-gui)"
 case ":$PATH:" in
   *":$DEST:"*) ;;
   *)

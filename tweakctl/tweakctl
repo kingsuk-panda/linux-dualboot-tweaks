@@ -5,7 +5,7 @@ Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
 import argparse, os, re, shutil, subprocess, sys, time, urllib.request, json
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -1151,6 +1151,7 @@ def main():
   tweakctl plymouth check        is a boot splash configured?
   tweakctl plymouth preview      watch the boot animation (--theme NAME to try one)
   tweakctl sound list            list the bundled ctOS sounds
+  tweakctl gui                   launch the graphical interface (needs tkinter)
   tweakctl update-check          check GitHub for a new release
 
 DISCLAIMER: tweakctl rewrites GRUB / initramfs / systemd config at your own
@@ -1177,6 +1178,7 @@ Startup in Windows first. Full text:  tweakctl disclaimer"""
     sub.add_parser("update-check", help="check GitHub for a new tweakctl release")
     sub.add_parser("disclaimer", help="print the risk disclaimer (read this first)")
     sub.add_parser("tui", help="interactive menu")
+    sub.add_parser("gui", help="launch the graphical interface (needs tkinter)")
     a = p.parse_args()
     if a.command is None:
         if sys.stdin.isatty() and sys.stdout.isatty():
@@ -1189,6 +1191,13 @@ Startup in Windows first. Full text:  tweakctl disclaimer"""
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             die("`tweakctl tui` needs an interactive terminal.")
         tui()
+        return
+    if a.command == "gui":
+        import subprocess as _sp
+        gui = os.path.join(os.path.dirname(os.path.realpath(__file__)), "tweakctl-gui")
+        if not os.path.exists(gui):
+            die("tweakctl-gui not found next to tweakctl — reinstall.")
+        _sp.call([sys.executable, gui])
         return
     if a.command == "hibernate":
         hibernate_check() if a.action=="check" else hibernate_enable()

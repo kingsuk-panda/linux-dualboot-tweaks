@@ -1,15 +1,19 @@
 # Maintainer: kingsuk-panda <kingsuk.panda.2004@gmail.com>
 pkgname=tweakctl
-pkgver=0.6.0
+pkgver=0.7.0
 pkgrel=1
-pkgdesc="Hibernation/S3/Plymouth/ctOS tuner CLI for Arch, Ubuntu, Fedora"
+pkgdesc="Hibernation/S3/Plymouth/ctOS tuner CLI+GUI for Arch, Ubuntu, Fedora"
 arch=('any')
 url="https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 license=('MIT')
-depends=('python')
-source=("$pkgname-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.6.0/tweakctl/tweakctl")
-sha256sums=('SKIP')
+depends=('python' 'tk')
+source=("$pkgname-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.7.0/tweakctl/tweakctl"
+        "$pkgname-gui-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.7.0/tweakctl/tweakctl-gui")
+sha256sums=('SKIP' 'SKIP')
 
 package() {
   install -Dm755 "$srcdir/$pkgname-$pkgver" "$pkgdir/usr/local/bin/tweakctl"
+  install -Dm755 "$srcdir/$pkgname-gui-$pkgver" "$pkgdir/usr/local/bin/tweakctl-gui"
+  install -Dm644 "$srcdir/../../tweakctl/tweakctl-gui.desktop" \
+    "$pkgdir/usr/share/applications/tweakctl-gui.desktop"
 }

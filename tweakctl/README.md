@@ -1,6 +1,18 @@
 # tweakctl
 
-One CLI to check & enable **hibernation**, pick **S3 deep sleep**, select a **Plymouth theme**, and pick/apply **ctOS sounds** — on **Arch, Ubuntu/Debian, Fedora/RHEL**.
+One CLI **and GUI** to check & enable **hibernation**, pick **S3 deep sleep**, select a **Plymouth theme**, and pick/apply **ctOS sounds** — on **Arch, Ubuntu/Debian, Fedora/RHEL**.
+
+## GUI (graphical interface)
+
+```bash
+tweakctl-gui        # or: tweakctl gui
+```
+
+A tkinter-based graphical front-end — same checks, same actions, same safety
+dialogs as the CLI. Works on any distro with `python3` + `tkinter`
+(`sudo apt install python3-tk` / `sudo dnf install python3-tkinter` /
+`sudo pacman -S tk` if missing). System changes are elevated automatically
+(pkexec → sudo). First run shows the same disclaimer as the CLI.
 
 ## Install
 
