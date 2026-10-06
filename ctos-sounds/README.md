@@ -1,29 +1,34 @@
-# ctOS Sounds
+# ctOS Sounds — Arch / Ubuntu / Fedora + KDE/GNOME
 
-Custom Watch Dogs-style ctOS sounds for boot, shutdown, and hibernate.
+Watch Dogs-style ctOS sounds for boot, shutdown, and hibernate/suspend.
 
 ## Components
 
 ### `/usr/local/bin/ctos-sound`
-Plays an audio file in every active graphical session. Uses `setpriv` (not `runuser`/`su`) because `runuser` tries to register a PAM/logind session, which fails once `user.slice` is frozen. Iterates over `/run/user/*/pipewire-0` sockets and plays with `pw-play --volume=...`.
+Plays an audio file in every active graphical session. Uses `setpriv` (not `runuser`/`su`) because `runuser` tries to register a PAM/logind session, which fails once `user.slice` is frozen. Iterates `/run/user/*/pipewire-0` sockets and plays via `pw-play --volume=...`.
 
-Usage:
 ```bash
 ctos-sound /path/to/sound.ogg [volume]
 ```
 
 ### Sound files — `/usr/share/sounds/ctos/`
-- `ctos-shutdown.ogg`
-- `ctos-boot.ogg`
+`ctos-shutdown.ogg`, `ctos-boot.ogg`
 
 ### Boot sound — `~/.config/systemd/user/ctos-boot-sound.service`
-Plays `ctos-boot.ogg` at login (`WantedBy=graphical-session.target`).
+Plays `ctos-boot.ogg` at login. Works on KDE/GNOME/any session using systemd user manager + PipeWire.
 
 ### Shutdown sound — `/etc/systemd/system/ctos-sound-shutdown.service`
-`ExecStop` plays the shutdown sound before poweroff/halt. Triggers only on poweroff/halt, not reboot. Uses inverse ordering: `After=user@1000.service` so the unit stops before the user session (which owns PipeWire), letting the sound play while audio is alive.
+`ExecStop` plays the shutdown sound on poweroff/halt (not reboot). `After=user@1000.service` ensures the unit stops *before* the user session dies, so audio is alive during playback.
 
-### Hibernate sounds
-- `ctos-hibernate-on.service` — plays shutdown sound before `sleep.target`/`systemd-hibernate.service` freezes user.slice; touches `/run/ctos-hibernated` marker.
-- `ctos-hibernate-off.service` — after resume, if marker exists, plays `ctos-boot.ogg`.
+### Hibernate/suspend sounds
+- `ctos-hibernate-on.service` — plays sound before `user.slice` freeze; touches `/run/ctos-hibernated`.
+- `ctos-hibernate-off.service` — if marker present, plays boot sound on resume.
 
-All three services are enabled system-wide (`systemctl list-unit-files --state=enabled`).
+## Applicability
+- **Arch / Ubuntu / Fedora:** same systemd unit files work; only the player differs.
+- **Audio stack:** PipeWire required for `pw-play` (default on modern KDE/GNOME). On PulseAudio use `paplay`, ALSA use `aplay`.
+- **GNOME:** same; just make sure the gdm/user session starts PipeWire before graphical-session sounds run.
+
+## Limitations
+- No sound on pure TTY sessions (no PipeWire socket).
+- Sound may be missed if shutdown sound file is slow to decode — keep timeout (`TimeoutStopSec=15`).

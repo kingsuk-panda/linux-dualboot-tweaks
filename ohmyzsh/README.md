@@ -1,13 +1,19 @@
-# Oh My Zsh
+# Oh My Zsh — Arch / Ubuntu / Fedora
 
-Zsh with Oh My Zsh, theme `violet`, plus several plugins.
+Zsh config with Oh My Zsh, custom theme, and plugins.
 
 ## `~/.zshrc` essentials
 ```bash
 export ZSH="$HOME/.oh-my-zsh"
 ZSH_THEME="violet"
-plugins=(... zsh-autosuggestions zsh-history-substring-search zsh-syntax-highlighting ...)
+plugins=(git zsh-autosuggestions zsh-history-substring-search zsh-syntax-highlighting)
 ```
+
+## Install path
+- Arch: `sudo pacman -S zsh`
+- Ubuntu: `sudo apt install zsh`
+- Fedora: `sudo dnf install zsh`
+Then: `sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"`
 
 ## Custom plugins — `~/.oh-my-zsh/custom/plugins/`
 - `zsh-autosuggestions`
@@ -17,6 +23,6 @@ plugins=(... zsh-autosuggestions zsh-history-substring-search zsh-syntax-highlig
 ## Custom theme — `~/.oh-my-zsh/custom/themes/`
 - `violet.zsh-theme`
 
-## Useful files
-- `~/.zsh_history`
-- `~/.config/fish`, etc. are separate — this entry covers zsh only.
+## Notes
+- This is distro-agnostic; same files on Arch/Ubuntu/Fedora/KDE/GNOME.
+- Backup note: `~/.zsh_history`, `~/.oh-my-zsh/custom/themes/violet.zsh-theme` are the only custom parts; reinstall Oh My Zsh and drop these files back in to reproduce.
