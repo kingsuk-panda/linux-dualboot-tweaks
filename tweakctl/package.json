@@ -1,0 +1,41 @@
+{
+  "name": "tweakctl",
+  "version": "0.4.0",
+  "description": "Interactive CLI to check/enable hibernation, toggle S3 sleep, switch plymouth boot themes and ctOS sounds — works on any Linux distro (Arch, Ubuntu/Debian, Fedora/RHEL).",
+  "bin": {
+    "tweakctl": "./tweakctl"
+  },
+  "files": [
+    "tweakctl",
+    "README.md"
+  ],
+  "scripts": {
+    "start": "./tweakctl"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks.git"
+  },
+  "keywords": [
+    "hibernate",
+    "hibernation",
+    "linux",
+    "suspend",
+    "sleep",
+    "s3-sleep",
+    "plymouth",
+    "boot-theme",
+    "dual-boot",
+    "arch",
+    "ubuntu",
+    "fedora",
+    "cli",
+    "tui"
+  ],
+  "author": "kingsuk-panda",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/issues"
+  },
+  "homepage": "https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks#readme"
+}

@@ -12,20 +12,25 @@ A practical, tested guide to **hibernating a Linux PC/laptop**, enabling **S3 de
 
 Each feature folder contains its own `README.md`, the actual config/script/theme files, and a `setup.sh` script that installs them (Arch; check each README for Ubuntu/Fedora equivalents).
 
-Or use the **tweakctl CLI** (Arch/Ubuntu/Fedora):
+### Install `tweakctl` — any distro, one line
 
 ```bash
-sudo cp tweakctl/tweakctl /usr/local/bin/
+curl -fsSL https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/main/install.sh | bash
+```
+
+Same tool is also published as **`npm i -g tweakctl`**, and as native packages (`.deb` / `.rpm` / Arch `.pkg.tar.zst`) on every [release](https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/releases). Only requirement: `python3`.
+
+```bash
 tweakctl                     # interactive TUI menu (↑/↓, Enter, q)
 tweakctl hibernate check     # does hibernation work?
 tweakctl hibernate enable    # make it work
 tweakctl s3 set-deep
+tweakctl plymouth preview    # watch the boot animation live
 tweakctl plymouth apply --theme watch-dogs
+tweakctl sound preview --name ctos-boot   # listen first
 tweakctl sound apply --name ctos-boot
 tweakctl update-check
 ```
-
-Prebuilt `.deb`, `.rpm` and Arch packages are attached to every [release](https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/releases).
 
 ```bash
 cd hibernation && sudo ./setup.sh   # then reboot + systemctl hibernate

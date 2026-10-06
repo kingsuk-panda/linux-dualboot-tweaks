@@ -3,9 +3,9 @@
 
 Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
-import argparse, os, re, shutil, subprocess, sys, urllib.request, json, platform
+import argparse, os, re, shutil, subprocess, sys, time, urllib.request, json, platform
 
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -61,8 +61,22 @@ def fail_line(msg):  print(f"{RED}{BOLD}[FAIL]{RESET} {msg}")
 def warn_line(msg):  print(f"{YELLOW}{BOLD}[WARN]{RESET} {msg}")
 
 # ---------- hibernation ----------
-def hibernate_check():
-    print(f"{BOLD}== Hibernation check =={RESET}")
+def _uuid_of(dev):
+    """UUID of a block device without needing root (via /dev/disk/by-uuid)."""
+    try:
+        dev_real = os.path.realpath(dev)
+        for e in os.listdir("/dev/disk/by-uuid"):
+            if os.path.realpath(f"/dev/disk/by-uuid/{e}") == dev_real:
+                return e
+    except OSError:
+        pass
+    m = re.search(r'UUID="([^"]+)"', run(["sudo", "-n", "blkid", dev], check=False).stdout or "")
+    return m.group(1) if m else None
+
+def hibernation_state():
+    """Collect hibernation facts once. Returns (ready, items) where
+    items = [(level, message), ...] and level is ok/fail/warn/info."""
+    items = []
     st = open("/sys/power/state").read().strip() if os.path.exists("/sys/power/state") else ""
     swaps = []
     if os.path.exists("/proc/swaps"):
@@ -76,40 +90,54 @@ def hibernate_check():
     has_initramfs_tools = os.path.exists("/etc/initramfs-tools") and any("RESUME=" in open(os.path.join(r,f), errors="ignore").read() for r,_,files in os.walk("/etc/initramfs-tools") for f in files)
     in_fstab = False
     for dev, _ in swaps:
-        uuid = re.search(r'UUID="([^"]+)"', run(["blkid", dev], sudo=True, check=False).stdout or "")
-        if dev in fstab or (uuid and uuid.group(1) in fstab):
+        u = _uuid_of(dev)
+        if dev in fstab or (u and u in fstab):
             in_fstab = True
             break
     mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
     if "disk" in st:
-        ok_line("Kernel supports hibernation (S4 'disk' state). States: " + st)
+        items.append(("ok", "Kernel supports hibernation (S4 'disk' state). States: " + st))
     else:
-        fail_line(f"HIBERNATION IS NOT SUPPORTED. /sys/power/state = '{st or 'empty'}'.")
+        items.append(("fail", f"HIBERNATION IS NOT SUPPORTED. /sys/power/state = '{st or 'empty'}'."))
     if swaps:
         for dev, sz in swaps:
-            print(f"  swap: {dev} {sz:.0f} GiB")
+            items.append(("info", f"  swap: {dev} {sz:.0f} GiB"))
         if max(s for _,s in swaps) >= mem*0.9:
-            ok_line(f"Swap large enough ({max(s for _,s in swaps):.0f} GiB vs ~{mem:.0f} GiB RAM).")
+            items.append(("ok", f"Swap large enough ({max(s for _,s in swaps):.0f} GiB vs ~{mem:.0f} GiB RAM)."))
         else:
-            fail_line(f"Swap too small ({max(s for _,s in swaps):.0f} GiB). Needs ≈ RAM ({mem:.0f} GiB).")
+            items.append(("fail", f"Swap too small ({max(s for _,s in swaps):.0f} GiB). Needs ≈ RAM ({mem:.0f} GiB)."))
     else:
-        fail_line("No swap configured. Hibernation impossible without swap.")
+        items.append(("fail", "No swap configured. Hibernation impossible without swap."))
     if in_fstab:
-        ok_line("Swap is in /etc/fstab (auto-mounts at boot).")
+        items.append(("ok", "Swap is in /etc/fstab (auto-mounts at boot)."))
     else:
-        warn_line("Swap is NOT in /etc/fstab — resume may fail on cold boot.")
+        items.append(("warn", "Swap is NOT in /etc/fstab — resume may fail on cold boot."))
     if has_resume_param:
-        ok_line("Kernel cmdline has resume= param.")
+        items.append(("ok", "Kernel cmdline has resume= param."))
     else:
-        fail_line("Kernel has NO resume= param — hibernated session won't be found.")
+        items.append(("fail", "Kernel has NO resume= param — hibernated session won't be found."))
     if os.path.exists("/etc/mkinitcpio.conf"):
-        ok_line("mkinitcpio has resume hook.") if has_mkcpio else fail_line("mkinitcpio is MISSING the resume hook.")
+        items.append(("ok", "mkinitcpio has resume hook.") if has_mkcpio
+                     else ("fail", "mkinitcpio is MISSING the resume hook."))
     if os.path.exists("/usr/lib/dracut") or os.path.exists("/usr/bin/dracut"):
-        print("  [..] Fedora/RHEL: resume handled by dracut when resume= is set")
+        items.append(("info", "  [..] Fedora/RHEL: resume handled by dracut when resume= is set"))
     if os.path.exists("/etc/initramfs-tools"):
-        ok_line("Ubuntu initramfs-tools RESUME= set.") if has_initramfs_tools else fail_line("Ubuntu initramfs-tools RESUME= missing.")
+        items.append(("ok", "Ubuntu initramfs-tools RESUME= set.") if has_initramfs_tools
+                     else ("fail", "Ubuntu initramfs-tools RESUME= missing."))
+    ready = bool("disk" in st and swaps and has_resume_param and in_fstab
+                 and (has_mkcpio or has_initramfs_tools or os.path.exists("/usr/bin/dracut")))
+    return ready, items
+
+def hibernation_ready():
+    return hibernation_state()[0]
+
+def hibernate_check():
+    print(f"{BOLD}== Hibernation check =={RESET}")
+    ready, items = hibernation_state()
+    for level, msg in items:
+        {"ok": ok_line, "fail": fail_line, "warn": warn_line, "info": print}[level](msg)
     print()
-    if "disk" in st and swaps and has_resume_param and in_fstab and (has_mkcpio or has_initramfs_tools or os.path.exists('/usr/bin/dracut')):
+    if ready:
         print(f"{GREEN}{BOLD}>>> HIBERNATION IS ALREADY IMPLEMENTED ON THIS DEVICE — schedule with: systemctl hibernate <<<{RESET}")
     else:
         print(f"{RED}{BOLD}>>> HIBERNATION IS NOT FULLY SET UP — run: sudo tweakctl hibernate enable <<<{RESET}")
@@ -124,12 +152,16 @@ def hibernate_enable():
         die("No swap active. Create swap >= RAM first.")
     # Prefer the UUID of an *active* swap device, then any swap partition.
     swap_uuid = None
-    out = run(["blkid"], sudo=True, check=False).stdout
-    for dev in active + [l.split()[0] for l in out.splitlines()]:
-        m = re.search(r'UUID="([^"]+)"', run(["blkid", dev], check=False).stdout or "")
-        if m:
-            swap_uuid = m.group(1)
+    for dev in active:
+        swap_uuid = _uuid_of(dev)
+        if swap_uuid:
             break
+    if not swap_uuid:
+        out = run(["blkid"], sudo=True, check=False).stdout
+        for line in out.splitlines():
+            if "TYPE=\"swap\"" in line:
+                m = re.search(r'UUID="([^"]+)"', line)
+                if m: swap_uuid = m.group(1); break
     if not swap_uuid:
         die("Could not find any swap UUID.")
     d, _ = distro()
@@ -162,6 +194,20 @@ def hibernate_enable():
     print("Hibernation enabled. Reboot and test: systemctl hibernate")
 
 # ---------- s3 ----------
+def s3_state():
+    """Returns (deep_available, deep_active, cmdline_persists)."""
+    if not os.path.exists("/sys/power/mem_sleep"):
+        return False, False, False
+    modes = open("/sys/power/mem_sleep").read()
+    return ("deep" in modes, "[deep]" in modes,
+            "mem_sleep_default=deep" in open("/proc/cmdline").read())
+
+def s3_active_mode():
+    if not os.path.exists("/sys/power/mem_sleep"):
+        return "?"
+    m = re.search(r"\[(\w+)\]", open("/sys/power/mem_sleep").read())
+    return m.group(1) if m else "?"
+
 def s3_check():
     print(f"{BOLD}== S3 sleep check =={RESET}")
     if os.path.exists("/sys/power/mem_sleep"):
@@ -230,6 +276,103 @@ def plymouth_check():
     else:
         warn_line("Kernel missing 'splash' — plymouth won't show.")
 
+def current_plymouth_theme():
+    cfg = "/etc/plymouth/plymouthd.conf"
+    if os.path.exists(cfg):
+        m = re.search(r"Theme=(.+)", open(cfg).read())
+        if m and m.group(1).strip():
+            return m.group(1).strip()
+    if has("plymouth-set-default-theme"):
+        r = run(["plymouth-set-default-theme"], check=False)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    return None
+
+def theme_animation_gif(theme):
+    """Return a GIF of the theme's animation — bundled, or built from PNG
+    frames with ffmpeg (cached in ~/.cache/tweakctl). None if not possible."""
+    tdir = f"/usr/share/plymouth/themes/{theme}"
+    if not os.path.isdir(tdir):
+        return None
+    gifs = [f for f in os.listdir(tdir) if f.lower().endswith(".gif")]
+    if gifs:
+        return os.path.join(tdir, gifs[0])
+    frames_dir = tdir
+    frames = [f for f in os.listdir(tdir) if re.fullmatch(r"\d+\.png", f)]
+    if len(frames) < 2:                       # check one level down (e.g. bootanimation/)
+        for sub in sorted(os.listdir(tdir)):
+            p = os.path.join(tdir, sub)
+            if os.path.isdir(p):
+                fs = [f for f in os.listdir(p) if re.fullmatch(r"\d+\.png", f)]
+                if len(fs) >= 2:
+                    frames_dir, frames = p, fs
+                    break
+    if len(frames) < 2 or not has("ffmpeg"):
+        return None
+    nums = sorted(int(f[:-4]) for f in frames)
+    if nums != list(range(nums[0], nums[0] + len(nums))):
+        return None                            # non-contiguous frames: skip
+    cache = os.path.expanduser("~/.cache/tweakctl")
+    os.makedirs(cache, exist_ok=True)
+    out = os.path.join(cache, f"{theme}-preview.gif")
+    newest_src = max(os.path.getmtime(os.path.join(frames_dir, f)) for f in frames)
+    if os.path.exists(out) and os.path.getmtime(out) > newest_src:
+        return out
+    pattern = os.path.join(frames_dir, "%d.png")
+    r = run(["ffmpeg","-y","-loglevel","error","-framerate","15",
+             "-start_number",str(nums[0]),"-i",pattern,
+             "-vf","scale=480:-1:flags=lanczos","-loop","0",out], check=False)
+    if r.returncode == 0 and os.path.exists(out):
+        return out
+    return None
+
+def plymouth_preview(duration=8):
+    """Show the real boot splash (best effort), else open the theme animation."""
+    if not has("plymouth") or not has("plymouthd"):
+        die("Plymouth is not installed — nothing to preview.")
+    theme = current_plymouth_theme() or "default"
+    print(f"{BOLD}== Plymouth preview: {theme} =={RESET}")
+    try:
+        tty = os.ttyname(0)
+    except OSError:
+        tty = None
+    already = run(["plymouth","--ping"], sudo=True, check=False).returncode == 0
+    daemon = None
+    live_ok = False
+    try:
+        if not already:
+            cmd = ["sudo","plymouthd","--mode=boot","--no-daemon",
+                   "--pid-file","/run/plymouth-preview.pid"]
+            if tty:
+                cmd += ["--tty", tty]
+            daemon = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1.0)
+        if run(["plymouth","--show-splash"], sudo=True, check=False).returncode == 0:
+            live_ok = True
+            print(f"The real boot splash is playing for {duration}s — watch your screen!")
+            time.sleep(duration)
+    finally:
+        run(["plymouth","--quit"], sudo=True, check=False)
+        if daemon:
+            daemon.terminate()
+            try:
+                daemon.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                daemon.kill()
+    if live_ok:
+        ok_line("Live splash preview finished.")
+        return
+    warn_line("Live splash could not be shown in this session.")
+    gif = theme_animation_gif(theme)
+    if gif:
+        print(f"Opening the theme's animation instead: {gif}")
+        subprocess.Popen(["xdg-open", gif], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).poll()
+        ok_line("Animation opened in your image viewer.")
+        return
+    print("You can still preview it from a free virtual console:")
+    print("  sudo plymouthd --mode=boot --tty=/dev/tty2 --pid-file=/run/plymouth.pid")
+    print("  sudo plymouth --show-splash      # quit with: sudo plymouth --quit")
+
 def plymouth_apply(theme):
     if not theme:
         d = "/usr/share/plymouth/themes"
@@ -269,6 +412,24 @@ def player():
         if has(p.split()[0]):
             return p
     return None
+
+def sound_preview(name=None):
+    name = (name or "ctos-boot").strip()
+    path = None
+    if os.path.exists(os.path.expanduser(name)):
+        path = os.path.expanduser(name)
+    elif name in SOUNDS:
+        path = os.path.expanduser(SOUNDS[name])
+    if not path or not os.path.exists(path):
+        die(f"Sound '{name}' not found. Run `tweakctl sound list`.")
+    pl = player()
+    if not pl:
+        die("No audio player found (need pw-play, paplay, ffplay or aplay).")
+    print(f"{BOLD}== Playing: {path} =={RESET}")
+    r = run(pl.split() + [path], check=False)
+    if r.returncode != 0:
+        die(f"Playback failed: {(r.stderr or '').strip()}")
+    ok_line("Playback finished.")
 
 def sound_apply(name_or_path, volume="0.7"):
     path = None
@@ -324,20 +485,71 @@ def tui():
     ANSI = _re.compile(r"\033\[[0-9;]*m")
     ver_short = VERSION
     did, _ = distro()
+    UNIT = os.path.expanduser("~/.config/systemd/user/ctos-boot-sound.service")
 
-    # (label, action, needs_root)
+    # label / action / root? / already(val)? -> (title, why[]) / suspend?
     MENU = [
-        ("Hibernate  > Check status",        lambda: hibernate_check(),        False),
-        ("Hibernate  > Enable",              lambda: hibernate_enable(),       True),
-        ("S3 sleep   > Check",               lambda: s3_check(),               False),
-        ("S3 sleep   > Set deep",            lambda: s3_set("deep"),           True),
-        ("S3 sleep   > Set s2idle",          lambda: s3_set("s2idle"),         True),
-        ("Plymouth   > Check",               lambda: plymouth_check(),         False),
-        ("Plymouth   > Apply theme",         "PROMPT_THEME",                   True),
-        ("Sound      > List",                lambda: sound_list(),             False),
-        ("Sound      > Apply",               "PROMPT_SOUND",                   False),
-        ("Update     > Check for updates",   lambda: update_check(),           False),
-        ("About / Quit",                     None,                             False),
+        dict(label="Hibernate  > Check status",
+             action=lambda: hibernate_check()),
+        dict(label="Hibernate  > Enable",
+             action=lambda: hibernate_enable(), root=True,
+             already=lambda v: hibernation_ready(),
+             title="HIBERNATION IS ALREADY ENABLED",
+             why=["Hibernation is already fully working on this device.",
+                  "Re-running rewrites the resume= parameter in your GRUB cmdline "
+                  "(your other kernel params are kept), rebuilds the initramfs "
+                  "(takes 1-2 min) and regenerates grub.cfg.",
+                  "Only continue if you changed your swap or hibernation stopped working."]),
+        dict(label="S3 sleep   > Check",
+             action=lambda: s3_check()),
+        dict(label="S3 sleep   > Set deep",
+             action=lambda: s3_set("deep"), root=True,
+             already=lambda v: s3_state()[1],
+             title="S3 DEEP SLEEP IS ALREADY ACTIVE",
+             why=["Deep (S3) sleep is already the active suspend mode and is saved "
+                  "on the kernel cmdline.",
+                  "Re-running rewrites the GRUB cmdline and regenerates grub.cfg — "
+                  "you will see no visible change.",
+                  "Cancel if you only wanted to check the status."]),
+        dict(label="S3 sleep   > Set s2idle",
+             action=lambda: s3_set("s2idle"), root=True,
+             already=lambda v: s3_active_mode() == "s2idle",
+             title="S2IDLE IS ALREADY THE ACTIVE MODE",
+             why=["Your system already suspends to s2idle — the shallow mode that "
+                  "uses more battery while suspended.",
+                  "Setting it again rewrites the GRUB cmdline and regenerates "
+                  "grub.cfg with no visible change.",
+                  "Tip: 'S3 sleep > Set deep' uses less power while suspended."]),
+        dict(label="Plymouth   > Check",
+             action=lambda: plymouth_check()),
+        dict(label="Plymouth   > Apply theme",
+             action="PROMPT_THEME", root=True,
+             already=lambda v: v is not None and v == current_plymouth_theme(),
+             title="THAT THEME IS ALREADY ACTIVE",
+             why=["The theme you picked is already your active plymouth theme.",
+                  "Re-running rebuilds the initramfs (1-2 min) and changes "
+                  "nothing visually.",
+                  "Cancel if you meant to choose a different theme."]),
+        dict(label="Plymouth   > Preview animation",
+             action=lambda: plymouth_preview(), root=True, suspend=True),
+        dict(label="Sound      > List",
+             action=lambda: sound_list()),
+        dict(label="Sound      > Preview (listen)",
+             action="PROMPT_PREVIEW_SOUND"),
+        dict(label="Sound      > Apply (boot sound)",
+             action="PROMPT_SOUND",
+             already=lambda v: os.path.exists(UNIT),
+             title="A BOOT SOUND IS ALREADY CONFIGURED",
+             why=["Your systemd user unit ctos-boot-sound.service already plays "
+                  "a sound at login.",
+                  "Continuing replaces the current sound with your selection — "
+                  "nothing else changes.",
+                  "Cancel and run 'Sound > List' first if you want to browse."]),
+        dict(label="Update     > Check for updates",
+             action=lambda: update_check()),
+        dict(label="About tweakctl",
+             action="ABOUT"),
+        dict(label="Quit", action=None),
     ]
 
     def put(scr, y, x, text, attr=0):
@@ -353,6 +565,87 @@ def tui():
         except curses.error:
             pass
 
+    def wrap(text, width):
+        out, cur = [], ""
+        for word in text.split():
+            if cur and len(cur) + 1 + len(word) > width:
+                out.append(cur)
+                cur = word
+            else:
+                cur = f"{cur} {word}".strip()
+        if cur:
+            out.append(cur)
+        return out
+
+    def confirm_screen(stdscr, title, bullets, question="Are you sure you want to continue?"):
+        """Modal 'already enabled' dialog. Returns True only for an explicit y/Y."""
+        h, w = stdscr.getmaxyx()
+        box_w = min(w - 2, 78)
+        x0 = max(0, (w - box_w) // 2)
+        text_w = box_w - 6
+        lines = []
+        for b in bullets:
+            lines += wrap(b, text_w)
+        body_h = len(lines) + 3          # blank + bullets + blank + question
+        box_h = body_h + 4               # borders + title + footer
+        y0 = max(1, (h - box_h) // 2)
+        warn = curses.color_pair(3) | curses.A_BOLD if curses.has_colors() else curses.A_BOLD
+        stdscr.erase()
+        put(stdscr, y0,     x0, "┌" + "─" * (box_w - 2) + "┐", warn)
+        put(stdscr, y0 + 1, x0, "│", warn)
+        put(stdscr, y0 + 1, x0 + 2, f"⚠ {title}", warn)
+        put(stdscr, y0 + 1, x0 + box_w - 1, "│", warn)
+        y = y0 + 2
+        put(stdscr, y, x0, "│", warn)
+        put(stdscr, y, x0 + box_w - 1, "│", warn)
+        y += 1
+        for ln in lines:
+            put(stdscr, y, x0, "│", warn)
+            put(stdscr, y, x0 + 3, ln)
+            put(stdscr, y, x0 + box_w - 1, "│", warn)
+            y += 1
+        put(stdscr, y, x0, "│", warn)
+        put(stdscr, y, x0 + box_w - 1, "│", warn)
+        y += 1
+        put(stdscr, y, x0, "│", warn)
+        put(stdscr, y, x0 + 3, question, curses.A_BOLD)
+        put(stdscr, y, x0 + box_w - 1, "│", warn)
+        y += 1
+        put(stdscr, y, x0, "│", warn)
+        put(stdscr, y, x0 + 3, "[y] Yes — continue        [n] No — cancel", curses.A_REVERSE)
+        put(stdscr, y, x0 + box_w - 1, "│", warn)
+        put(stdscr, y0 + box_h - 1, x0, "└" + "─" * (box_w - 2) + "┘", warn)
+        stdscr.refresh()
+        while True:
+            k = stdscr.getch()
+            if k in (ord("y"), ord("Y")):
+                return True
+            if k in (ord("n"), ord("N"), 27, ord("q"), ord("Q"), 10, 13):
+                return False
+
+    def read_key(scr):
+        """getch that also understands terminals sending raw \x1b[A/B sequences."""
+        k = scr.getch()
+        if k != 27:
+            return k
+        scr.timeout(50)
+        try:
+            n = scr.getch()
+            if n == -1:
+                return 27                       # plain Esc
+            if n == ord("["):
+                m = scr.getch()
+                if m == ord("A"):
+                    return curses.KEY_UP
+                if m == ord("B"):
+                    return curses.KEY_DOWN
+                if m in (ord("5"), ord("6")):
+                    scr.getch()                 # consume trailing '~'
+                    return curses.KEY_PPAGE if m == ord("5") else curses.KEY_NPAGE
+            return -1
+        finally:
+            scr.timeout(-1)
+
     def ensure_sudo(stdscr):
         """Ask for the sudo password once, on a clean screen outside curses."""
         if os.geteuid() == 0 or not has("sudo"):
@@ -366,6 +659,25 @@ def tui():
             curses.reset_prog_mode()
             stdscr.refresh()
         return rc == 0
+
+    def perform(action, val, sink):
+        """Run the chosen action; write its output to sink (None = live screen)."""
+        def body():
+            if action == "PROMPT_THEME":
+                plymouth_apply(val)
+            elif action == "PROMPT_SOUND":
+                sound_apply(val, "0.7")
+            elif action == "PROMPT_PREVIEW_SOUND":
+                sound_preview(val)
+            elif action == "PREVIEW_PLYMOUTH":
+                plymouth_preview()
+            else:
+                action()
+        if sink is None:
+            body()
+        else:
+            with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+                body()
 
     def line_attr(scr, line):
         if line.startswith("[OK]"):
@@ -385,6 +697,23 @@ def tui():
         if line.startswith("  [..]"):
             return curses.color_pair(4)
         return 0
+
+    def prompt_line(stdscr, h, x, text):
+        """Single-line input on the last row; returns stripped text or ''."""
+        curses.echo()
+        curses.curs_set(1)
+        try:
+            stdscr.move(h - 1, 0)
+            stdscr.clrtoeol()
+            put(stdscr, h - 1, x, text, curses.A_BOLD)
+            stdscr.refresh()
+            val = stdscr.getstr(h - 1, min(x + len(text), stdscr.getmaxyx()[1] - 2), 60)
+            return val.decode(errors="replace").strip()
+        finally:
+            curses.noecho()
+            curses.curs_set(0)
+            stdscr.clrtoeol()
+            stdscr.refresh()
 
     def loop(stdscr):
         nonlocal sel, offset
@@ -412,13 +741,14 @@ def tui():
             put(stdscr, 0, out_x, " Output ", curses.A_REVERSE)
             put(stdscr, 1, out_x, "─" * max(1, w - out_x - 1), curses.A_DIM)
 
-            for i, (label, _, _) in enumerate(MENU):
+            for i, entry in enumerate(MENU):
                 if i + 2 >= h - 1:
                     break
                 if i == sel:
-                    put(stdscr, i + 2, 0, f"> {label}", curses.A_REVERSE | curses.A_BOLD)
+                    put(stdscr, i + 2, 0, f"> {entry['label']}", curses.A_REVERSE | curses.A_BOLD)
                 else:
-                    put(stdscr, i + 2, 0, f"  {label}", curses.A_DIM if i == len(MENU) - 1 else 0)
+                    dim = curses.A_DIM if entry["action"] is None else 0
+                    put(stdscr, i + 2, 0, f"  {entry['label']}", dim)
 
             body = h - 4               # header(2) + footer(1) + spare
             start = max(0, len(output) - body - offset)
@@ -426,13 +756,12 @@ def tui():
             for j, line in enumerate(output[start:end]):
                 put(stdscr, j + 2, out_x, line, line_attr(stdscr, line))
 
-            footer = " ↑/↓ Enter PgUp/PgDn scroll q quit "
-            put(stdscr, h - 1, 0, footer, curses.A_REVERSE)
+            put(stdscr, h - 1, 0, " ↑/↓ Enter PgUp/PgDn scroll q quit ", curses.A_REVERSE)
             if offset:
                 put(stdscr, h - 1, max(0, w - 14), f" {offset}↑ ", curses.A_REVERSE)
             stdscr.refresh()
 
-            k = stdscr.getch()
+            k = read_key(stdscr)
             if k in (ord("q"), ord("Q"), 27):
                 break
             elif k == curses.KEY_UP:
@@ -445,57 +774,71 @@ def tui():
                 offset = max(0, offset - body)
             elif k in (10, 13, curses.KEY_ENTER):
                 offset = 0
-                label, fn, needs_root = MENU[sel]
-                if fn is None:
+                entry = MENU[sel]
+                action = entry["action"]
+                if action is None:
                     break
-                if needs_root and not ensure_sudo(stdscr):
+                # 1) prompts (before anything else, so nothing runs on cancel)
+                val = None
+                if isinstance(action, str):
+                    if action == "PROMPT_THEME":
+                        themes = sorted(os.listdir("/usr/share/plymouth/themes")) \
+                            if os.path.exists("/usr/share/plymouth/themes") else []
+                        val = prompt_line(stdscr, h, out_x,
+                                          f"Theme ({'/'.join(themes) or 'none'}): ")
+                    elif action == "PROMPT_SOUND":
+                        val = prompt_line(stdscr, h, out_x, "Sound name/path: ")
+                    elif action == "PROMPT_PREVIEW_SOUND":
+                        val = prompt_line(stdscr, h, out_x,
+                                          "Sound to play (Enter = ctos-boot): ") or "ctos-boot"
+                    if action != "PROMPT_PREVIEW_SOUND" and not val:
+                        output = ["Cancelled — nothing was changed.", ""]
+                        continue
+                    if action == "ABOUT":
+                        output = [
+                            f"tweakctl v{ver_short} — MIT licensed (ctOS sounds/Watch Dogs art © Ubisoft)",
+                            f"Detected distro: {did}",
+                            f"Repository: https://github.com/{GH_REPO}",
+                            "Docs, packages and sources: see the README.",
+                            "",
+                        ]
+                        continue
+                # 2) already-enabled confirmation
+                already = entry.get("already")
+                if already and already(val):
+                    if not confirm_screen(stdscr, entry["title"], entry["why"]):
+                        output = ["Cancelled — nothing was changed.", ""]
+                        continue
+                # 3) sudo (after the user has said yes)
+                if entry.get("root") and not ensure_sudo(stdscr):
                     output = ["[FAIL] sudo authentication failed — action cancelled.", ""]
                     continue
-                buf = io.StringIO()
-                try:
-                    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-                        if fn == "PROMPT_THEME":
-                            themes = sorted(os.listdir("/usr/share/plymouth/themes")) \
-                                if os.path.exists("/usr/share/plymouth/themes") else []
-                            val = prompt_line(stdscr, h, out_x,
-                                              f"Theme ({'/'.join(themes) or 'none'}): ")
-                            if val:
-                                plymouth_apply(val)
-                            else:
-                                buf.write("Cancelled.\n")
-                        elif fn == "PROMPT_SOUND":
-                            val = prompt_line(stdscr, h, out_x, "Sound name/path: ")
-                            if val:
-                                sound_apply(val, "0.7")
-                            else:
-                                buf.write("Cancelled.\n")
-                        else:
-                            fn()
-                except SystemExit:
-                    pass                # die() already wrote to the captured stream
-                except KeyboardInterrupt:
-                    buf.write("\nInterrupted.\n")
-                except Exception as e:
-                    buf.write(f"\n[ERROR] {e}\n")
-                cleaned = ANSI.sub("", buf.getvalue()) or "(no output)"
-                output = cleaned.splitlines()
-
-    def prompt_line(stdscr, h, x, text):
-        """Single-line input on the last row; returns stripped text or ''."""
-        curses.echo()
-        curses.curs_set(1)
-        try:
-            stdscr.move(h - 1, 0)
-            stdscr.clrtoeol()
-            put(stdscr, h - 1, x, text, curses.A_BOLD)
-            stdscr.refresh()
-            val = stdscr.getstr(h - 1, min(x + len(text), stdscr.getmaxyx()[1] - 2), 60)
-            return val.decode(errors="replace").strip()
-        finally:
-            curses.noecho()
-            curses.curs_set(0)
-            stdscr.clrtoeol()
-            stdscr.refresh()
+                # 4) run
+                if entry.get("suspend"):
+                    curses.def_prog_mode()
+                    curses.endwin()
+                    try:
+                        perform(action, val, None)
+                    except (SystemExit, KeyboardInterrupt):
+                        pass
+                    except Exception as e:
+                        print(f"[ERROR] {e}")
+                    finally:
+                        curses.reset_prog_mode()
+                        stdscr.refresh()
+                    output = [f"Ran: {entry['label']}", "Back in tweakctl.", ""]
+                else:
+                    buf = io.StringIO()
+                    try:
+                        perform(action, val, buf)
+                    except SystemExit:
+                        pass                # die() already wrote to the stream
+                    except KeyboardInterrupt:
+                        buf.write("\nInterrupted.\n")
+                    except Exception as e:
+                        buf.write(f"\n[ERROR] {e}\n")
+                    cleaned = ANSI.sub("", buf.getvalue()) or "(no output)"
+                    output = cleaned.splitlines()
 
     sel, offset = 0, 0
     curses.wrapper(loop)
@@ -506,8 +849,8 @@ def main():
     sub = p.add_subparsers(dest="command")
     hib = sub.add_parser("hibernate"); hib.add_argument("action", choices=["check","enable"])
     s3 = sub.add_parser("s3"); s3.add_argument("action", choices=["check","enable","set-deep","set-s2idle"])
-    pl = sub.add_parser("plymouth"); pl.add_argument("action", choices=["check","apply"]); pl.add_argument("--theme")
-    so = sub.add_parser("sound"); so.add_argument("action", choices=["list","apply"]); so.add_argument("--name"); so.add_argument("--volume", default="0.7")
+    pl = sub.add_parser("plymouth"); pl.add_argument("action", choices=["check","apply","preview"]); pl.add_argument("--theme")
+    so = sub.add_parser("sound"); so.add_argument("action", choices=["list","apply","preview"]); so.add_argument("--name"); so.add_argument("--volume", default="0.7")
     sub.add_parser("update-check")
     sub.add_parser("tui")
     a = p.parse_args()
@@ -530,9 +873,19 @@ def main():
         elif a.action in ("enable","set-deep"): s3_set("deep")
         else: s3_set("s2idle")
     elif a.command == "plymouth":
-        plymouth_check() if a.action=="check" else plymouth_apply(a.theme)
+        if a.action == "check":
+            plymouth_check()
+        elif a.action == "preview":
+            plymouth_preview()
+        else:
+            plymouth_apply(a.theme)
     elif a.command == "sound":
-        sound_list() if a.action=="list" else sound_apply(a.name or input("Sound name/path: "), a.volume)
+        if a.action == "list":
+            sound_list()
+        elif a.action == "preview":
+            sound_preview(a.name)
+        else:
+            sound_apply(a.name or input("Sound name/path: "), a.volume)
     elif a.command == "update-check":
         update_check()
     else:

@@ -4,11 +4,23 @@ One CLI to check & enable **hibernation**, pick **S3 deep sleep**, select a **Pl
 
 ## Install
 
+### Any distro — one line (curl)
+```bash
+curl -fsSL https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/main/install.sh | bash
+```
+Installs to `~/.local/bin` (add `--system` for `/usr/local/bin`, `--uninstall` to remove).
+Only requirement: `python3`. Works on Arch, Debian/Ubuntu, Fedora, openSUSE, Alpine, Nix-ish setups — anything with python3.
+
+### npm
+```bash
+npm i -g tweakctl      # same tool, shipped as an npm package
+```
+
 ### Arch (AUR-style, no root needed for PKGBUILD build)
 ```bash
 cd tweakctl/packaging && makepkg -si
 # or from the release asset:
-sudo pacman -U tweakctl-0.1.0-1-any.pkg.tar.zst
+sudo pacman -U tweakctl-0.4.0-1-any.pkg.tar.zst
 ```
 To publish to the AUR, create an AUR4 account, then:
 ```bash
@@ -18,21 +30,14 @@ cp PKGBUILD tweakctl/; cd tweakctl && makepkg --printsrcinfo > .SRCINFO && git a
 
 ### Ubuntu / Debian (.deb)
 ```bash
-sudo dpkg -i tweakctl_0.1.0_all.deb
+sudo dpkg -i tweakctl_0.4.0_all.deb
 # or build: cd tweakctl/packaging && ./build.sh
 ```
 
 ### Fedora / RHEL (.rpm)
 ```bash
-sudo rpm -i tweakctl-0.1.0-1.noarch.rpm
+sudo rpm -i tweakctl-0.4.0-1.noarch.rpm
 # or build: cd tweakctl/packaging && ./build.sh
-```
-
-### Any distro (raw script)
-```bash
-git clone https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks
-cd linux-hibernate-dual-boot-tweaks/tweakctl
-sudo cp tweakctl /usr/local/bin/
 ```
 
 ## Usage
@@ -52,12 +57,18 @@ tweakctl s3 check
 tweakctl s3 set-deep         # force S3 instead of s2idle
 tweakctl plymouth check
 tweakctl plymouth apply --theme watch-dogs
+tweakctl plymouth preview    # play the real boot splash on screen (or open the animation)
 tweakctl sound list
+tweakctl sound preview --name ctos-boot     # listen before applying
 tweakctl sound apply --name ctos-boot --volume 0.7
 tweakctl update-check        # checks GitHub for newer release
 ```
 
 TUI navigation: `↑`/`↓` to move, `Enter` to run, `PgUp`/`PgDn` to scroll long output, `q` (or `Esc`) to quit. Actions that need root ask for your sudo password on a clean screen first, then run without interruptions.
+
+If something is **already enabled** (hibernation working, deep sleep active, theme already selected, boot sound set), the TUI shows an **“Are you sure?”** screen explaining exactly what would change — `y` continues, `n`/`Esc` cancels with nothing modified.
+
+**Previews:** `Sound > Preview (listen)` plays the sound through your speakers; `Plymouth > Preview animation` shows the actual boot splash for a few seconds (falls back to opening the theme's animation as a GIF).
 
 ## How it works
 - **Hibernate enable** detects your distro and either adds `resume=UUID=...` to GRUB (Arch/Ubuntu) and rebuilds initramfs (`mkinitcpio -P`/`update-initramfs -u`), or uses `grubby` + `dracut` on Fedora. Always creates the fstab swap line if missing.
