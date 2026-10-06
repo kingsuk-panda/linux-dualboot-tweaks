@@ -10,3 +10,10 @@ packaging/deb/
 packaging/src/
 packaging/pkg/
 *.zst
+*.deb
+*.rpm
+*.pkg.tar.zst
+tweakctl/packaging/rpmbuild/
+tweakctl/packaging/deb/
+tweakctl/packaging/src/
+tweakctl/packaging/pkg/
