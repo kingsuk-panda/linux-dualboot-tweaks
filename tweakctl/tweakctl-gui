@@ -6,7 +6,7 @@ system changes (elevated via pkexec/sudo) and its state functions for checks.
 """
 import argparse, importlib.util, importlib.machinery, os, queue, re, shutil, subprocess, sys, threading, time
 
-VERSION = "0.7.0"
+VERSION = "0.7.1"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 
 # ---------- import the tweakctl module (file has no .py extension) ----------
@@ -39,6 +39,7 @@ TC, TWEAKCTL_PATH = load_tweakctl()
 # ---------- colors ----------
 GREEN, RED, YELLOW, BLUE, GREY = "#2ecc71", "#e74c3c", "#f1c40f", "#3498db", "#7f8c8d"
 BG, FG, PANEL = "#1e1e2e", "#e0e0e0", "#2a2a3a"
+DARK, LIGHT, ACCENT = "#111118", "#a0ffa0", "#8b5cf6"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 def strip(s): return ANSI.sub("", s)
@@ -58,8 +59,8 @@ def elevate_prefix():
         _elev["prefix"] = ["pkexec"]
     else:
         pw = simpledialog.askstring("Password needed",
-                                   "Enter your sudo password (kept in memory only):",
-                                   show="*")
+                                       "Enter your sudo password (kept in memory only):",
+                                       show="*")
         if not pw:
             die("No password — cannot perform system changes.")
         p = subprocess.run(["sudo", "-S", "-v"], input=pw + "\n",
@@ -85,6 +86,7 @@ class Worker:
         self.app = app
         self.q = queue.Queue()
         self.busy = False
+        self.preview_proc = None
 
     def start(self, fn, *args):
         if self.busy:
@@ -141,12 +143,12 @@ class Confirm(Dialog):
         fr = tk.Frame(self, bg=BG); fr.pack(fill="both", expand=True, padx=16, pady=14)
         for ln in lines:
             tk.Label(fr, text=ln, bg=BG, fg=FG, justify="left",
-                     wraplength=480, font=("TkDefaultFont", 10)).pack(anchor="w", pady=2)
+                     wraplength=480, font=("Segoe UI", 10)).pack(anchor="w", pady=2)
         row = tk.Frame(fr, bg=BG); row.pack(pady=(14, 0))
         tk.Button(row, text=no, command=self.cancel, width=12,
-                  font=("TkDefaultFont", 10, "bold")).pack(side="right", padx=(8, 0))
+                  font=("Segoe UI", 10, "bold")).pack(side="right", padx=(8, 0))
         tk.Button(row, text=yes, command=lambda: self.finish(True), width=16,
-                  bg=RED, fg="white", font=("TkDefaultFont", 10, "bold")).pack(side="right")
+                  bg=RED, fg="white", font=("Segoe UI", 10, "bold")).pack(side="right")
 
 class Chooser(Dialog):
     """List picker with ↑/↓ + Enter, Esc cancels, • markers."""
@@ -155,7 +157,7 @@ class Chooser(Dialog):
         self.items = items
         self.sel = marker_idx if marker_idx is not None else 0
         self.lb = tk.Listbox(self, bg=PANEL, fg=FG, selectbackground=BLUE,
-                             font=("TkFixedFont", 11), highlightthickness=0,
+                             font=("Consolas", 11), highlightthickness=0,
                              activestyle="none", exportselection=False)
         for i, (label, _) in enumerate(items):
             self.lb.insert("end", label)
@@ -163,7 +165,7 @@ class Chooser(Dialog):
         self.lb.select_set(self.sel)
         self.lb.see(self.sel)
         tk.Label(self, text="↑/↓ move   Enter select   Esc cancel",
-                 bg=BG, fg=GREY, font=("TkDefaultFont", 9)).pack(pady=(0, 8))
+                 bg=BG, fg=GREY, font=("Segoe UI", 9)).pack(pady=(0, 8))
         self.lb.bind("<Return>", lambda e: self._pick())
         self.lb.bind("<Double-Button-1>", lambda e: self._pick())
         self.lb.focus_set()
@@ -185,12 +187,12 @@ class Disclaimer(Dialog):
         fr = tk.Frame(self, bg=BG); fr.pack(fill="both", expand=True, padx=16, pady=12)
         for p in paras:
             tk.Label(fr, text="• " + p, bg=BG, fg=FG, justify="left",
-                     wraplength=600, font=("TkDefaultFont", 9)).pack(anchor="w", pady=3)
+                     wraplength=600, font=("Segoe UI", 9)).pack(anchor="w", pady=3)
         row = tk.Frame(fr, bg=BG); row.pack(pady=(12, 0))
         tk.Button(row, text="No, quit", command=self.cancel, width=12,
-                  font=("TkDefaultFont", 10, "bold")).pack(side="right", padx=(8, 0))
+                  font=("Segoe UI", 10, "bold")).pack(side="right", padx=(8, 0))
         tk.Button(row, text="Yes, I accept", command=lambda: self.finish(True), width=16,
-                  bg=GREEN, fg="white", font=("TkDefaultFont", 10, "bold")).pack(side="right")
+                  bg=GREEN, fg="white", font=("Segoe UI", 10, "bold")).pack(side="right")
 
 # ---------- main app ----------
 class App(tk.Tk):
@@ -220,9 +222,9 @@ class App(tk.Tk):
     def _build(self):
         top = tk.Frame(self, bg=BG); top.pack(fill="x", padx=10, pady=(8, 0))
         tk.Label(top, text=f"tweakctl GUI  v{VERSION}", bg=BG, fg=FG,
-                 font=("TkDefaultFont", 14, "bold")).pack(side="left")
+                 font=("Segoe UI", 14, "bold")).pack(side="left")
         self.status = tk.Label(top, text="●", bg=BG, fg=GREY,
-                               font=("TkDefaultFont", 14))
+                               font=("Segoe UI", 14))
         self.status.pack(side="right")
 
         body = tk.Frame(self, bg=BG); body.pack(fill="both", expand=True, padx=10, pady=8)
@@ -234,15 +236,15 @@ class App(tk.Tk):
                            ("snd", "Sounds"), ("upd", "Updates"),
                            ("abt", "About")]:
             b = tk.Button(nav, text=label, width=16, bg=PANEL, fg=FG,
-                          relief="flat", font=("TkDefaultFont", 10),
+                          relief="flat", font=("Segoe UI", 10),
                           command=lambda k=key: self.show(k))
             b.pack(fill="x", pady=1)
             self.navbtns.append((key, b))
         self.content = tk.Frame(body, bg=BG)
         self.content.pack(side="left", fill="both", expand=True, padx=(8, 0))
 
-        self.logbox = tk.Text(self, height=7, bg="#111118", fg="#a0ffa0",
-                              font=("TkFixedFont", 9), state="disabled",
+        self.logbox = tk.Text(self, height=7, bg=DARK, fg=LIGHT,
+                              font=("Consolas", 9), state="disabled",
                               relief="flat")
         self.logbox.pack(fill="x", padx=10, pady=(0, 8))
         self.logbox.tag_config("ok", foreground=GREEN)
@@ -278,14 +280,14 @@ class App(tk.Tk):
     def status_line(self, parent, ok, okmsg, failmsg):
         color, msg = (GREEN, okmsg) if ok else (RED, failmsg)
         tk.Label(parent, text="●", bg=BG, fg=color,
-                 font=("TkDefaultFont", 16, "bold")).pack(anchor="w")
-        tk.Label(parent, text=msg, bg=BG, fg=color, font=("TkDefaultFont", 12, "bold"),
+                 font=("Segoe UI", 16, "bold")).pack(anchor="w")
+        tk.Label(parent, text=msg, bg=BG, fg=color, font=("Segoe UI", 12, "bold"),
                  wraplength=700, justify="left").pack(anchor="w", pady=(0, 8))
 
     def bullet(self, parent, level, msg):
         colors = {"ok": GREEN, "fail": RED, "warn": YELLOW, "info": FG}
         tk.Label(parent, text="• " + msg, bg=BG, fg=colors.get(level, FG),
-                 font=("TkDefaultFont", 10), wraplength=700,
+                 font=("Segoe UI", 10), wraplength=700,
                  justify="left").pack(anchor="w")
 
     def button_row(self, parent, buttons):
@@ -295,14 +297,14 @@ class App(tk.Tk):
             label, cmd = btn[0], btn[1]
             kw = btn[2] if len(btn) > 2 else {}
             tk.Button(row, text=label, command=cmd, width=20, height=1,
-                      font=("TkDefaultFont", 10, "bold"), **kw).pack(side="left", padx=(0, 8))
+                      font=("Segoe UI", 10, "bold"), **kw).pack(side="left", padx=(0, 8))
         return row
 
     def windows_banner(self, parent):
         if TC.windows_present():
             tk.Label(parent, text="⚠ Windows dual-boot detected — turn OFF 'Fast Startup' "
                                   "in Windows before testing hibernation.",
-                     bg=BG, fg=YELLOW, font=("TkDefaultFont", 10, "bold"),
+                     bg=BG, fg=YELLOW, font=("Segoe UI", 10, "bold"),
                      wraplength=700, justify="left").pack(anchor="w", pady=(4, 0))
 
     # ----- pages -----
@@ -318,7 +320,7 @@ class App(tk.Tk):
                          "HIBERNATION IS READY" if ready else "HIBERNATION IS NOT SET UP",
                          "Hibernation: not ready yet")
         self.button_row(parent, [("Set up hibernation", lambda: self.act_hib()),
-                                  ("Refresh", self.refresh, {})])
+                                  ("Refresh", self.refresh)])
         self.windows_banner(parent)
         tk.Frame(parent, bg=PANEL, height=1).pack(fill="x", pady=8)
 
@@ -425,25 +427,25 @@ class App(tk.Tk):
         self.status_line(parent, True, f"tweakctl version {TC.VERSION}", "Updates")
         self.button_row(parent, [("Check for updates", self.act_update)])
         self._upd_result = tk.Label(parent, text="", bg=BG, fg=FG,
-                                    font=("TkDefaultFont", 10), wraplength=700,
+                                    font=("Segoe UI", 10), wraplength=700,
                                     justify="left")
         self._upd_result.pack(anchor="w", pady=8)
 
     def page_abt(self, parent):
         tk.Label(parent, text=f"tweakctl GUI  v{VERSION}", bg=BG, fg=FG,
-                 font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
+                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
         tk.Label(parent, text=f"CLI version: {TC.VERSION}", bg=BG, fg=GREY,
-                 font=("TkDefaultFont", 10)).pack(anchor="w", pady=(2, 8))
+                 font=("Segoe UI", 10)).pack(anchor="w", pady=(2, 8))
         tk.Label(parent, text="Set up hibernation, S3 deep sleep, Plymouth boot splash "
                               "and ctOS sounds on Arch, Ubuntu/Debian and Fedora/RHEL.",
-                 bg=BG, fg=FG, font=("TkDefaultFont", 10), wraplength=700,
+                 bg=BG, fg=FG, font=("Segoe UI", 10), wraplength=700,
                  justify="left").pack(anchor="w")
         tk.Label(parent, text=f"https://github.com/{GH_REPO}", bg=BG, fg=BLUE,
-                 font=("TkDefaultFont", 10, "underline"), cursor="hand2").pack(anchor="w", pady=(6, 0))
+                 font=("Segoe UI", 10, "underline"), cursor="hand2").pack(anchor="w", pady=(6, 0))
         acc = TC.disclaimer_status()
         tk.Label(parent, text=f"Disclaimer: {'accepted ' + acc if acc else 'NOT accepted'}",
                  bg=BG, fg=(GREEN if acc else YELLOW),
-                 font=("TkDefaultFont", 10, "bold")).pack(anchor="w", pady=(10, 0))
+                 font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 0))
         self.button_row(parent, [("Read the disclaimer", self.act_disclaimer),
                                   ("Open repo in browser",
                                    lambda: subprocess.Popen(["xdg-open", f"https://github.com/{GH_REPO}"],
@@ -501,11 +503,53 @@ class App(tk.Tk):
         self.worker.start(go)
 
     def act_preview(self, theme):
+        """Preview Plymouth theme. ESC or Close stops the preview."""
         def go():
             self.log(f">> Previewing boot splash '{theme}' — watch your screen (needs root)...")
-            rc, out = run_cli(["plymouth", "preview", "--theme", theme], timeout=60)
-            self.log(out)
+            self.log(">> Press ESC or Close to stop the preview.")
+            # Run preview in a thread so we can kill it on ESC
+            self._preview_stop = threading.Event()
+            def run():
+                try:
+                    prefix = elevate_prefix()
+                    cmd = prefix + [TWEAKCTL_PATH, "plymouth", "preview", "--theme", theme]
+                    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         text=True)
+                    self.worker.preview_proc = p
+                    while True:
+                        line = p.stdout.readline()
+                        if not line and p.poll() is not None:
+                            break
+                        if line:
+                            self.q.put(("log", line.rstrip()))
+                        if self._preview_stop.is_set():
+                            p.terminate()
+                            try:
+                                p.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                p.kill()
+                            self.q.put(("log", "[INFO] Preview stopped by ESC."))
+                            break
+                except Exception as e:
+                    self.q.put(("log", f"[FAIL] preview error: {e}"))
+            threading.Thread(target=run, daemon=True).start()
         self.worker.start(go)
+
+    def stop_preview(self):
+        """Stop the running Plymouth preview (called from ESC or Close button)."""
+        if hasattr(self, "_preview_stop"):
+            self._preview_stop.set()
+        if self.worker.preview_proc:
+            try:
+                self.worker.preview_proc.terminate()
+                self.worker.preview_proc.wait(timeout=5)
+            except Exception:
+                try:
+                    self.worker.preview_proc.kill()
+                except Exception:
+                    pass
+            self.worker.preview_proc = None
+        self.log("[INFO] Preview stopped.")
 
     def preview(self, path):
         def go():
@@ -544,6 +588,7 @@ class App(tk.Tk):
             self.log("Disclaimer accepted — saved.")
 
     def on_close(self):
+        self.stop_preview()
         if self.playing:
             self.playing.terminate()
         self.destroy()
@@ -592,6 +637,11 @@ class App(tk.Tk):
             ck("ansi stripped", "\x1b" not in flat and "[OK]" in flat)
             # cli path resolution
             ck("cli path found", os.path.exists(TWEAKCTL_PATH))
+            # esc handling - preview stop
+            self._preview_stop = threading.Event()
+            ck("preview stop event exists", hasattr(self, "_preview_stop"))
+            self.stop_preview()
+            ck("stop_preview callable", True)
         except Exception as e:
             import traceback; traceback.print_exc()
             ck(f"exception: {e}", False)
