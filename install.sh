@@ -26,7 +26,11 @@ done
 if [ "$UNINSTALL" = 1 ]; then
   found=0
   for d in "$HOME/.local/bin" /usr/local/bin; do
-    if [ -e "$d/tweakctl" ]; then rm -f "$d/tweakctl"; echo "Removed $d/tweakctl"; found=1; fi
+    if [ -e "$d/tweakctl" ]; then
+      rm -f "$d/tweakctl" 2>/dev/null || sudo rm -f "$d/tweakctl"
+      echo "Removed $d/tweakctl"
+      found=1
+    fi
   done
   [ "$found" = 1 ] || echo "tweakctl is not installed."
   exit 0
