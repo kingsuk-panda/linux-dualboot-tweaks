@@ -1,6 +1,16 @@
-# Hibernation on Arch / Ubuntu / Fedora
+# Hibernation on Arch / Ubuntu / Fedora — Enable Linux Hibernate & Resume
 
-How to enable hibernation (suspend-to-disk) with a dedicated swap partition. Keywords: arch linux hibernate, linux not resuming from hibernate, add hibernate to power menu, gnome hibernate button missing.
+How to enable **Linux hibernation** (suspend-to-disk) so the OS saves its exact state to swap and restores it on next boot. Keywords: arch linux hibernate, ubuntu hibernate, fedora hibernate, linux not resuming from hibernate, enable hibernate linux, hibernate option not showing, gnome hibernate button missing, add hibernate to power menu, hibernate fails, cannot hibernate linux, linux hibernate dual boot windows.
+
+## TL;DR
+```
+blkid /dev/sda2                      # note swap UUID
+# add resume=UUID=... to kernel cmdline
+# add resume hook to initramfs & rebuild
+# ensure swap line is in /etc/fstab
+systemctl hibernate
+```
+
 
 ## Conditions
 - Swap must be **>= RAM size** (this machine: 16G swap vs ~8G RAM).
@@ -52,6 +62,17 @@ systemctl hibernate
 ## Limitations
 - Never hibernate while the Windows NTFS partition (`sda4`) is mounted, and disable Windows Fast Startup so Windows itself isn't in a hibernated state at the same time.
 - If resume fails, your session is lost — check `journalctl -b` for `PM: hibernation` messages.
+- System with hibernation disabled can't save RAM to swap: verify `cat /sys/power/state` (should include `disk`).
+
+## Troubleshooting
+
+**`systemctl hibernate` says "Operation not permitted" / "Not supported".** Check `systemctl status systemd-hibernate`, logind's `CanHibernate`, and that swap ≥ RAM.
+
+**Black screen / hangs on resume (never comes back).** Try `resume=` with correct UUID; ensure initramfs includes `resume` hook; some GPUs need `nomodeset` during the hibernate boot (then switch back).
+
+**Machine reboots instead of resuming.** UUIDs changed (distro stored old UUID in grub): rerun `grub-mkconfig` / `grubby`.
+
+**Session lost after successful hibernate + boot.** Swap was reformatted/smaller than RAM, or another OS touched the swap partition.
 
 ## Bundled files
 - `mkinitcpio.conf` → Arch: `/etc/mkinitcpio.conf`

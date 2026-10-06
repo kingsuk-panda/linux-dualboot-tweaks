@@ -1,6 +1,11 @@
 # S3 (Deep) Sleep — Arch / Ubuntu / Fedora
 
-Force S3 (`deep`) sleep instead of modern standby (`s2idle`). Keywords: linux mem_sleep_default deep, s3 sleep not working, s2idle vs deep.
+Force S3 (`deep`) sleep instead of modern standby (`s2idle`). Keywords: linux mem_sleep_default deep, s3 sleep not working, s2idle vs deep, sleep not waking up linux, laptop sleep drains battery.
+
+## Also try
+```bash
+echo deep | sudo tee /sys/power/mem_sleep   # temporary, one boot
+```
 
 ## Current state (this machine)
 ```bash

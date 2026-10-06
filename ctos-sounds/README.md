@@ -1,6 +1,6 @@
 # ctOS Sounds — Arch / Ubuntu / Fedora + KDE/GNOME
 
-Watch Dogs-style ctOS sounds for boot, shutdown, and hibernate/suspend.
+Watch Dogs-style ctOS sounds for boot, shutdown, and hibernate/suspend. Keywords: linux startup sound, linux shutdown sound systemd, add boot sound linux, watch dogs ctOS sound linux.
 
 ## Components
 
