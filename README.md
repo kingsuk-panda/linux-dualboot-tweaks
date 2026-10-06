@@ -12,7 +12,6 @@ Custom tweaks and features for a PC dual-booted with **Arch Linux (KDE Plasma)**
 | Oh My Zsh | [ohmyzsh/](ohmyzsh/) | ohmyzsh theme plugins arch |
 | Plymouth theme | [plymouth-theme/](plymouth-theme/) | arch plymouth theme boot splash |
 | GRUB dual boot | [grub-dualboot/](grub-dualboot/) | arch windows 11 dual boot grub |
-| Wallpapers | [wallpapers/](wallpapers/) | — |
 
 ## System specifications (this machine)
 
