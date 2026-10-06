@@ -5,7 +5,7 @@ Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
 import argparse, os, re, shutil, subprocess, sys, time, urllib.request, json
 
-VERSION = "0.7.2"
+VERSION = "0.7.3"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 

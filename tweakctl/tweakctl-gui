@@ -6,27 +6,60 @@ system changes (elevated via pkexec/sudo) and its state functions for checks.
 """
 import argparse, importlib.util, importlib.machinery, os, queue, re, shutil, subprocess, sys, threading, time
 
-VERSION = "0.7.2"
+VERSION = "0.7.3"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 
 # ---------- import the tweakctl module (file has no .py extension) ----------
+def _is_python_script(p):
+    """True if p starts with a shebang (i.e. is the tweakctl script, not an ELF)."""
+    try:
+        with open(p, "rb") as f:
+            return f.read(2) == b"#!"
+    except Exception:
+        return False
+
 def load_tweakctl():
+    """Return (module, cli_path).
+
+    The module is imported from the tweakctl Python script (needed for the
+    state functions the GUI reads). cli_path is what subprocess mutations
+    run: a compiled binary next to the executable when frozen (AppImage),
+    otherwise the script itself.
+    """
     here = os.path.dirname(os.path.realpath(__file__))
     exe_dir = os.path.dirname(os.path.realpath(sys.executable))
-    path = None
-    for cand in (shutil.which("tweakctl"),
-                 os.path.join(here, "tweakctl"),
-                 os.path.join(exe_dir, "tweakctl")):
-        if cand and os.path.exists(cand):
-            path = cand
+    meipass = getattr(sys, "_MEIPASS", None)  # PyInstaller extraction dir
+
+    # 1) an importable Python script (state functions)
+    script = None
+    script_cands = []
+    if meipass:
+        script_cands.append(os.path.join(meipass, "tweakctl"))
+    script_cands += [shutil.which("tweakctl"),
+                     os.path.join(here, "tweakctl"),
+                     os.path.join(exe_dir, "tweakctl")]
+    for cand in script_cands:
+        if cand and os.path.exists(cand) and _is_python_script(cand):
+            script = cand
             break
-    if not path:
-        die(f"tweakctl CLI not found (looked in PATH, {here}, {exe_dir}).")
+    if not script:
+        die(f"tweakctl script not found (looked in {meipass}, PATH, {here}, {exe_dir}).")
+
     spec = importlib.util.spec_from_loader("tweakctl",
-        importlib.machinery.SourceFileLoader("tweakctl", path))
+        importlib.machinery.SourceFileLoader("tweakctl", script))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod, path
+
+    # 2) what to exec for mutations: a compiled binary next to us wins
+    #    (AppImage); otherwise the script itself (normal installs).
+    bin_path = os.path.join(exe_dir, "tweakctl")
+    if os.path.exists(bin_path) and not _is_python_script(bin_path):
+        return mod, bin_path
+    try:
+        os.chmod(script, 0o755)
+    except OSError:
+        pass
+    return mod, script
 
 def die(msg):
     print(f"tweakctl-gui: {msg}", file=sys.stderr)

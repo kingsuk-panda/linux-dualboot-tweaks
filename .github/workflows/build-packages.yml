@@ -70,7 +70,8 @@ jobs:
       - name: Build binaries with PyInstaller
         run: |
           ~/.local/bin/pyinstaller --onefile --name tweakctl tweakctl/tweakctl
-          ~/.local/bin/pyinstaller --onefile --name tweakctl-gui tweakctl/tweakctl-gui
+          ~/.local/bin/pyinstaller --onefile --name tweakctl-gui \
+            --add-data "tweakctl/tweakctl:tweakctl" tweakctl/tweakctl-gui
       - name: Assemble AppDir
         run: |
           VER="${GITHUB_REF#refs/tags/v}"

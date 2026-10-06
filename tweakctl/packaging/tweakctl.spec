@@ -1,5 +1,5 @@
 Name:           tweakctl
-Version:        0.7.2
+Version:        0.7.3
 Release:        1%{?dist}
 Summary:        Hibernation/S3/Plymouth/ctOS tuner CLI+GUI for Arch, Ubuntu, Fedora
 License:        MIT
