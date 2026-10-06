@@ -12,6 +12,18 @@ A practical, tested guide to **hibernating a Linux PC/laptop**, enabling **S3 de
 
 Each feature folder contains its own `README.md`, the actual config/script/theme files, and a `setup.sh` script that installs them (Arch; check each README for Ubuntu/Fedora equivalents).
 
+Or use the **tweakctl CLI** (Arch/Ubuntu/Fedora):
+
+```bash
+sudo cp tweakctl/tweakctl /usr/local/bin/
+tweakctl hibernate check     # does hibernation work?
+tweakctl hibernate enable    # make it work
+tweakctl s3 set-deep
+tweakctl plymouth apply --theme watch-dogs
+tweakctl sound apply --name ctos-boot
+tweakctl update-check
+```
+
 ```bash
 cd hibernation && sudo ./setup.sh   # then reboot + systemctl hibernate
 ```
@@ -25,6 +37,7 @@ cd hibernation && sudo ./setup.sh   # then reboot + systemctl hibernate
 | Oh My Zsh | [ohmyzsh/](ohmyzsh/) | ohmyzsh theme plugins arch ubuntu fedora |
 | Plymouth theme | [plymouth-theme/](plymouth-theme/) | arch plymouth watch-dogs, change plymouth boot splash ubuntu fedora |
 | GRUB dual boot | [grub-dualboot/](grub-dualboot/) | arch linux windows 11 dual boot grub, os-prober not detecting windows |
+| **tweakctl** — all-in-one CLI tuner | [tweakctl/](tweakctl/) | linux hibernate cli, plymouth theme changer linux, linux s3 sleep toggle |
 
 ## Quick answer: How do I hibernate my Linux laptop?
 
