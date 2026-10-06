@@ -3,9 +3,9 @@
 
 Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
-import argparse, os, re, shutil, subprocess, sys, time, urllib.request, json, platform
+import argparse, os, re, shutil, subprocess, sys, time, urllib.request, json
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -42,9 +42,16 @@ def write_root(path, text):
     if p.returncode != 0:
         die(f"Could not write {path}: {p.stderr.strip()}")
 
+def _sed_repl(s):
+    """Escape a value used as a sed replacement with | delimiter."""
+    return s.replace("\\", "\\\\").replace("|", "\\|").replace("&", "\\&")
+
 def grub_set_param(param, value, path="/etc/default/grub"):
     """Add or replace one kernel param inside GRUB_CMDLINE_LINUX_DEFAULT,
     preserving every other argument the user has."""
+    if not os.path.exists(path):
+        die(f"{path} not found — GRUB does not seem to be your bootloader. "
+            f"Add '{param}={value}' to your bootloader's kernel arguments manually.")
     txt = open(path).read()
     m = re.search(r'^GRUB_CMDLINE_LINUX_DEFAULT="([^"]*)"', txt, re.M)
     if m:
@@ -326,52 +333,76 @@ def theme_animation_gif(theme):
         return out
     return None
 
-def plymouth_preview(duration=8):
-    """Show the real boot splash (best effort), else open the theme animation."""
+def installed_plymouth_themes():
+    d = "/usr/share/plymouth/themes"
+    try:
+        return sorted(os.listdir(d)) if os.path.isdir(d) else []
+    except OSError:
+        return []
+
+def plymouth_preview(theme=None, duration=8):
+    """Show the real boot splash (best effort), else open the theme animation.
+    A non-active theme is set temporarily and restored afterwards."""
     if not has("plymouth") or not has("plymouthd"):
         die("Plymouth is not installed — nothing to preview.")
-    theme = current_plymouth_theme() or "default"
+    current = current_plymouth_theme()
+    theme = theme or current or "default"
+    if theme != current and not os.path.isdir(f"/usr/share/plymouth/themes/{theme}"):
+        die(f"Theme '{theme}' is not installed.")
     print(f"{BOLD}== Plymouth preview: {theme} =={RESET}")
+    restore = None
+    if theme != current:
+        print(f"  (temporarily switching from '{current}' — restored automatically)")
+        if run(["plymouth-set-default-theme", theme], sudo=True, check=False).returncode != 0:
+            warn_line(f"Could not switch to '{theme}' — previewing the active one instead.")
+            theme = current or theme
+        else:
+            restore = current
     try:
-        tty = os.ttyname(0)
-    except OSError:
-        tty = None
-    already = run(["plymouth","--ping"], sudo=True, check=False).returncode == 0
-    daemon = None
-    live_ok = False
-    try:
-        if not already:
-            cmd = ["sudo","plymouthd","--mode=boot","--no-daemon",
-                   "--pid-file","/run/plymouth-preview.pid"]
-            if tty:
-                cmd += ["--tty", tty]
-            daemon = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(1.0)
-        if run(["plymouth","--show-splash"], sudo=True, check=False).returncode == 0:
-            live_ok = True
-            print(f"The real boot splash is playing for {duration}s — watch your screen!")
-            time.sleep(duration)
+        try:
+            tty = os.ttyname(0)
+        except OSError:
+            tty = None
+        already = run(["plymouth","--ping"], sudo=True, check=False).returncode == 0
+        daemon = None
+        live_ok = False
+        try:
+            if not already:
+                cmd = ["sudo","plymouthd","--mode=boot","--no-daemon",
+                       "--pid-file","/run/plymouth-preview.pid"]
+                if tty:
+                    cmd += ["--tty", tty]
+                daemon = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                time.sleep(1.0)
+            if run(["plymouth","--show-splash"], sudo=True, check=False).returncode == 0:
+                live_ok = True
+                print(f"The real boot splash is playing for {duration}s — watch your screen!")
+                time.sleep(duration)
+        finally:
+            run(["plymouth","--quit"], sudo=True, check=False)
+            if daemon:
+                daemon.terminate()
+                try:
+                    daemon.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    daemon.kill()
+        if live_ok:
+            ok_line("Live splash preview finished.")
+            return
+        warn_line("Live splash could not be shown in this session.")
+        gif = theme_animation_gif(theme)
+        if gif:
+            print(f"Opening the theme's animation instead: {gif}")
+            subprocess.Popen(["xdg-open", gif], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).poll()
+            ok_line("Animation opened in your image viewer.")
+            return
+        print("You can still preview it from a free virtual console:")
+        print("  sudo plymouthd --mode=boot --tty=/dev/tty2 --pid-file=/run/plymouth.pid")
+        print("  sudo plymouth --show-splash      # quit with: sudo plymouth --quit")
     finally:
-        run(["plymouth","--quit"], sudo=True, check=False)
-        if daemon:
-            daemon.terminate()
-            try:
-                daemon.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                daemon.kill()
-    if live_ok:
-        ok_line("Live splash preview finished.")
-        return
-    warn_line("Live splash could not be shown in this session.")
-    gif = theme_animation_gif(theme)
-    if gif:
-        print(f"Opening the theme's animation instead: {gif}")
-        subprocess.Popen(["xdg-open", gif], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).poll()
-        ok_line("Animation opened in your image viewer.")
-        return
-    print("You can still preview it from a free virtual console:")
-    print("  sudo plymouthd --mode=boot --tty=/dev/tty2 --pid-file=/run/plymouth.pid")
-    print("  sudo plymouth --show-splash      # quit with: sudo plymouth --quit")
+        if restore:
+            run(["plymouth-set-default-theme", restore], sudo=True, check=False)
+            print(f"Theme restored to '{restore}'.")
 
 def plymouth_apply(theme):
     if not theme:
@@ -383,7 +414,7 @@ def plymouth_apply(theme):
     run(["plymouth-set-default-theme", theme], sudo=True, check=False)
     cfg = "/etc/plymouth/plymouthd.conf"
     if os.path.exists(cfg):
-        run(["sed","-i",f"s/^Theme=.*/Theme={theme}/",cfg], sudo=True)
+        run(["sed","-i",f"s/^Theme=.*/Theme={_sed_repl(theme)}/",cfg], sudo=True)
     d,_ = distro()
     if d=="arch": run(["mkinitcpio","-P"], sudo=True)
     elif d in ("ubuntu","debian"): run(["update-initramfs","-u"], sudo=True)
@@ -395,6 +426,37 @@ SOUNDS = {
     "ctos-boot": "~/.local/share/sounds/ctos-boot.ogg",
     "ctos-shutdown": "/usr/share/sounds/ctos/ctos-shutdown.ogg",
 }
+
+def current_boot_sound():
+    """Path the boot-sound user unit will play, if configured."""
+    unit = os.path.expanduser("~/.config/systemd/user/ctos-boot-sound.service")
+    try:
+        m = re.search(r"(/[\w./+-]+\.(?:ogg|wav|mp3))", open(unit).read())
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+def sound_choices():
+    """[(label, path)] of every playable sound tweakctl can find."""
+    cur = current_boot_sound()
+    out, seen = [], set()
+    def add(label, path):
+        if not path or path in seen or not os.path.exists(path):
+            return
+        seen.add(path)
+        out.append((f"{label}  • current" if path == cur else label, path))
+    for name, p in SOUNDS.items():
+        exp = os.path.expanduser(p)
+        add(f"{name:16s} {os.path.basename(exp)}", exp)
+    for d in ("~/.local/share/sounds", "/usr/share/sounds/ctos"):
+        pth = os.path.expanduser(d)
+        if not os.path.isdir(pth):
+            continue
+        for f in sorted(os.listdir(pth)):
+            if f.endswith((".ogg", ".wav", ".mp3")):
+                add(os.path.join(pth, f), os.path.join(pth, f))
+    return out
+
 def sound_list():
     print("Available built-in ctOS sounds:")
     for name, path in SOUNDS.items():
@@ -452,7 +514,7 @@ def sound_apply(name_or_path, volume="0.7"):
     unit = os.path.expanduser("~/.config/systemd/user/ctos-boot-sound.service")
     os.makedirs(os.path.dirname(unit), exist_ok=True)
     if os.path.exists(unit):
-        run(["sed","-i",f"s|ExecStart=.*|ExecStart={play_cmd}|",unit])
+        run(["sed","-i",f"s|ExecStart=.*|ExecStart={_sed_repl(play_cmd)}|",unit])
     else:
         with open(unit, "w") as f:
             f.write("[Unit]\nDescription=ctOS boot sound\nAfter=graphical.target\n"
@@ -523,7 +585,7 @@ def tui():
         dict(label="Plymouth   > Check",
              action=lambda: plymouth_check()),
         dict(label="Plymouth   > Apply theme",
-             action="PROMPT_THEME", root=True,
+             action="CHOOSE_THEME", root=True,
              already=lambda v: v is not None and v == current_plymouth_theme(),
              title="THAT THEME IS ALREADY ACTIVE",
              why=["The theme you picked is already your active plymouth theme.",
@@ -531,13 +593,13 @@ def tui():
                   "nothing visually.",
                   "Cancel if you meant to choose a different theme."]),
         dict(label="Plymouth   > Preview animation",
-             action=lambda: plymouth_preview(), root=True, suspend=True),
+             action="CHOOSE_THEME_PREVIEW", root=True, suspend=True),
         dict(label="Sound      > List",
              action=lambda: sound_list()),
         dict(label="Sound      > Preview (listen)",
-             action="PROMPT_PREVIEW_SOUND"),
+             action="CHOOSE_SOUND_PREVIEW"),
         dict(label="Sound      > Apply (boot sound)",
-             action="PROMPT_SOUND",
+             action="CHOOSE_SOUND_APPLY",
              already=lambda v: os.path.exists(UNIT),
              title="A BOOT SOUND IS ALREADY CONFIGURED",
              why=["Your systemd user unit ctos-boot-sound.service already plays "
@@ -639,12 +701,76 @@ def tui():
                     return curses.KEY_UP
                 if m == ord("B"):
                     return curses.KEY_DOWN
+                if m == ord("H"):
+                    return curses.KEY_HOME
+                if m == ord("F"):
+                    return curses.KEY_END
                 if m in (ord("5"), ord("6")):
                     scr.getch()                 # consume trailing '~'
                     return curses.KEY_PPAGE if m == ord("5") else curses.KEY_NPAGE
+                if m in (ord("1"), ord("4")):
+                    scr.getch()                 # consume trailing '~'
+                    return curses.KEY_HOME if m == ord("1") else curses.KEY_END
             return -1
         finally:
             scr.timeout(-1)
+
+    def choose_list(stdscr, title, items, start=0):
+        """Modal picker: ↑/↓ or j/k move, Home/End, PgUp/PgDn, first-letter jump,
+        Enter selects, Esc/q cancels. items = [(label, value)] -> value or None."""
+        if not items:
+            return None
+        idx = max(0, min(start, len(items) - 1))
+        top = 0
+        while True:
+            h, w = stdscr.getmaxyx()
+            stdscr.erase()
+            put(stdscr, 0, 0, f" {title} ", curses.A_REVERSE)
+            put(stdscr, 1, 0, "─" * max(1, min(w - 1, 60)), curses.A_DIM)
+            rows = max(1, h - 4)
+            top = max(0, min(top, len(items) - rows)) if len(items) > rows else 0
+            if idx < top:
+                top = idx
+            if idx >= top + rows:
+                top = idx - rows + 1
+            for i in range(rows):
+                j = top + i
+                if j >= len(items):
+                    break
+                if j == idx:
+                    put(stdscr, 2 + i, 0, f"▶ {items[j][0]}",
+                        curses.A_REVERSE | curses.A_BOLD)
+                else:
+                    put(stdscr, 2 + i, 0, f"  {items[j][0]}")
+            put(stdscr, h - 1, 0, " ↑/↓ j/k move · Enter select · Esc cancel ",
+                curses.A_REVERSE)
+            put(stdscr, h - 1, max(0, w - 9), f" {idx + 1}/{len(items)} ",
+                curses.A_REVERSE)
+            stdscr.refresh()
+            k = read_key(stdscr)
+            if k in (ord("q"), ord("Q"), 27):
+                return None
+            if k in (curses.KEY_UP, ord("k")):
+                idx = (idx - 1) % len(items)
+            elif k in (curses.KEY_DOWN, ord("j")):
+                idx = (idx + 1) % len(items)
+            elif k == curses.KEY_HOME:
+                idx = 0
+            elif k == curses.KEY_END:
+                idx = len(items) - 1
+            elif k == curses.KEY_PPAGE:
+                idx = max(0, idx - rows)
+            elif k == curses.KEY_NPAGE:
+                idx = min(len(items) - 1, idx + rows)
+            elif k in (10, 13, curses.KEY_ENTER):
+                return items[idx][1]
+            elif 32 <= k < 127:                    # first-letter jump
+                ch = chr(k).lower()
+                for off in range(1, len(items) + 1):
+                    j = (idx + off) % len(items)
+                    if items[j][0].lower().lstrip("> ").startswith(ch):
+                        idx = j
+                        break
 
     def ensure_sudo(stdscr):
         """Ask for the sudo password once, on a clean screen outside curses."""
@@ -663,14 +789,14 @@ def tui():
     def perform(action, val, sink):
         """Run the chosen action; write its output to sink (None = live screen)."""
         def body():
-            if action == "PROMPT_THEME":
+            if action == "CHOOSE_THEME":
                 plymouth_apply(val)
-            elif action == "PROMPT_SOUND":
+            elif action == "CHOOSE_THEME_PREVIEW":
+                plymouth_preview(val)
+            elif action == "CHOOSE_SOUND_APPLY":
                 sound_apply(val, "0.7")
-            elif action == "PROMPT_PREVIEW_SOUND":
+            elif action == "CHOOSE_SOUND_PREVIEW":
                 sound_preview(val)
-            elif action == "PREVIEW_PLYMOUTH":
-                plymouth_preview()
             else:
                 action()
         if sink is None:
@@ -698,23 +824,6 @@ def tui():
             return curses.color_pair(4)
         return 0
 
-    def prompt_line(stdscr, h, x, text):
-        """Single-line input on the last row; returns stripped text or ''."""
-        curses.echo()
-        curses.curs_set(1)
-        try:
-            stdscr.move(h - 1, 0)
-            stdscr.clrtoeol()
-            put(stdscr, h - 1, x, text, curses.A_BOLD)
-            stdscr.refresh()
-            val = stdscr.getstr(h - 1, min(x + len(text), stdscr.getmaxyx()[1] - 2), 60)
-            return val.decode(errors="replace").strip()
-        finally:
-            curses.noecho()
-            curses.curs_set(0)
-            stdscr.clrtoeol()
-            stdscr.refresh()
-
     def loop(stdscr):
         nonlocal sel, offset
         if curses.has_colors():
@@ -727,7 +836,7 @@ def tui():
         curses.curs_set(0)
         stdscr.keypad(True)
         output = [
-            f"tweakctl v{ver_short} — {did} — ↑/↓ move · Enter run · PgUp/PgDn scroll · q quit",
+            f"tweakctl v{ver_short} — {did} — ↑/↓ or j/k · Enter run · PgUp/PgDn scroll · q quit",
             "Pick an action on the left; its output appears here.",
             "",
         ]
@@ -756,7 +865,8 @@ def tui():
             for j, line in enumerate(output[start:end]):
                 put(stdscr, j + 2, out_x, line, line_attr(stdscr, line))
 
-            put(stdscr, h - 1, 0, " ↑/↓ Enter PgUp/PgDn scroll q quit ", curses.A_REVERSE)
+            put(stdscr, h - 1, 0, " ↑/↓ j/k Enter · PgUp/PgDn scroll · q quit ",
+                curses.A_REVERSE)
             if offset:
                 put(stdscr, h - 1, max(0, w - 14), f" {offset}↑ ", curses.A_REVERSE)
             stdscr.refresh()
@@ -764,10 +874,14 @@ def tui():
             k = read_key(stdscr)
             if k in (ord("q"), ord("Q"), 27):
                 break
-            elif k == curses.KEY_UP:
+            elif k in (curses.KEY_UP, ord("k")):
                 sel = (sel - 1) % len(MENU)
-            elif k == curses.KEY_DOWN:
+            elif k in (curses.KEY_DOWN, ord("j")):
                 sel = (sel + 1) % len(MENU)
+            elif k == curses.KEY_HOME:
+                sel = 0
+            elif k == curses.KEY_END:
+                sel = len(MENU) - 1
             elif k == curses.KEY_PPAGE:
                 offset = min(len(output) - 1, offset + body)
             elif k == curses.KEY_NPAGE:
@@ -778,22 +892,9 @@ def tui():
                 action = entry["action"]
                 if action is None:
                     break
-                # 1) prompts (before anything else, so nothing runs on cancel)
+                # 1) selection (before anything else, so nothing runs on cancel)
                 val = None
                 if isinstance(action, str):
-                    if action == "PROMPT_THEME":
-                        themes = sorted(os.listdir("/usr/share/plymouth/themes")) \
-                            if os.path.exists("/usr/share/plymouth/themes") else []
-                        val = prompt_line(stdscr, h, out_x,
-                                          f"Theme ({'/'.join(themes) or 'none'}): ")
-                    elif action == "PROMPT_SOUND":
-                        val = prompt_line(stdscr, h, out_x, "Sound name/path: ")
-                    elif action == "PROMPT_PREVIEW_SOUND":
-                        val = prompt_line(stdscr, h, out_x,
-                                          "Sound to play (Enter = ctos-boot): ") or "ctos-boot"
-                    if action != "PROMPT_PREVIEW_SOUND" and not val:
-                        output = ["Cancelled — nothing was changed.", ""]
-                        continue
                     if action == "ABOUT":
                         output = [
                             f"tweakctl v{ver_short} — MIT licensed (ctOS sounds/Watch Dogs art © Ubisoft)",
@@ -802,6 +903,37 @@ def tui():
                             "Docs, packages and sources: see the README.",
                             "",
                         ]
+                        continue
+                    themes = installed_plymouth_themes()
+                    cur_theme = current_plymouth_theme()
+                    theme_items = [(f"{t}  • active" if t == cur_theme else t, t)
+                                   for t in themes]
+                    theme_start = next((i for i, (_, v) in enumerate(theme_items)
+                                        if v == cur_theme), 0)
+                    if action == "CHOOSE_THEME":
+                        if not theme_items:
+                            output = ["[FAIL] No plymouth themes installed.", ""]
+                            continue
+                        val = choose_list(stdscr, " Choose a theme to apply ",
+                                          theme_items, theme_start)
+                    elif action == "CHOOSE_THEME_PREVIEW":
+                        if not theme_items:
+                            output = ["[FAIL] No plymouth themes installed.", ""]
+                            continue
+                        val = choose_list(stdscr, " Preview which theme? ",
+                                          theme_items, theme_start)
+                    elif action in ("CHOOSE_SOUND_PREVIEW", "CHOOSE_SOUND_APPLY"):
+                        choices = sound_choices()
+                        if not choices:
+                            output = ["[FAIL] No sound files found — see `tweakctl sound list`.", ""]
+                            continue
+                        start = next((i for i, (_, v) in enumerate(choices)
+                                      if v == current_boot_sound()), 0)
+                        title = (" Preview which sound? " if action == "CHOOSE_SOUND_PREVIEW"
+                                 else " Choose the boot sound ")
+                        val = choose_list(stdscr, title, choices, start)
+                    if val is None:
+                        output = ["Cancelled — nothing was changed.", ""]
                         continue
                 # 2) already-enabled confirmation
                 already = entry.get("already")
@@ -876,7 +1008,7 @@ def main():
         if a.action == "check":
             plymouth_check()
         elif a.action == "preview":
-            plymouth_preview()
+            plymouth_preview(a.theme)
         else:
             plymouth_apply(a.theme)
     elif a.command == "sound":

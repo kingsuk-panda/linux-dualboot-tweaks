@@ -20,7 +20,7 @@ npm i -g tweakctl      # same tool, shipped as an npm package
 ```bash
 cd tweakctl/packaging && makepkg -si
 # or from the release asset:
-sudo pacman -U tweakctl-0.4.0-1-any.pkg.tar.zst
+sudo pacman -U tweakctl-0.5.0-1-any.pkg.tar.zst
 ```
 To publish to the AUR, create an AUR4 account, then:
 ```bash
@@ -30,13 +30,13 @@ cp PKGBUILD tweakctl/; cd tweakctl && makepkg --printsrcinfo > .SRCINFO && git a
 
 ### Ubuntu / Debian (.deb)
 ```bash
-sudo dpkg -i tweakctl_0.4.0_all.deb
+sudo dpkg -i tweakctl_0.5.0_all.deb
 # or build: cd tweakctl/packaging && ./build.sh
 ```
 
 ### Fedora / RHEL (.rpm)
 ```bash
-sudo rpm -i tweakctl-0.4.0-1.noarch.rpm
+sudo rpm -i tweakctl-0.5.0-1.noarch.rpm
 # or build: cd tweakctl/packaging && ./build.sh
 ```
 
@@ -64,11 +64,13 @@ tweakctl sound apply --name ctos-boot --volume 0.7
 tweakctl update-check        # checks GitHub for newer release
 ```
 
-TUI navigation: `↑`/`↓` to move, `Enter` to run, `PgUp`/`PgDn` to scroll long output, `q` (or `Esc`) to quit. Actions that need root ask for your sudo password on a clean screen first, then run without interruptions.
+TUI navigation: `↑`/`↓` (or `j`/`k`) to move, `Home`/`End` to jump, `Enter` to run, `PgUp`/`PgDn` to scroll long output, `q` (or `Esc`) to quit. **Pickers** (themes, sounds) use the same keys plus any letter to jump to the next entry starting with it; `Enter` selects, `Esc` cancels.
 
 If something is **already enabled** (hibernation working, deep sleep active, theme already selected, boot sound set), the TUI shows an **“Are you sure?”** screen explaining exactly what would change — `y` continues, `n`/`Esc` cancels with nothing modified.
 
-**Previews:** `Sound > Preview (listen)` plays the sound through your speakers; `Plymouth > Preview animation` shows the actual boot splash for a few seconds (falls back to opening the theme's animation as a GIF).
+**Previews:**
+- `Sound > Preview (listen)` opens a picker of every sound tweakctl can find (current boot sound marked `• current`) — arrow down, press `Enter`, and it plays.
+- `Plymouth > Preview animation` opens a theme picker (active theme marked `• active`); choosing another theme switches to it **temporarily**, plays the real boot splash for ~8 s, then restores your original theme. Falls back to opening the animation as a GIF.
 
 ## How it works
 - **Hibernate enable** detects your distro and either adds `resume=UUID=...` to GRUB (Arch/Ubuntu) and rebuilds initramfs (`mkinitcpio -P`/`update-initramfs -u`), or uses `grubby` + `dracut` on Fedora. Always creates the fstab swap line if missing.
