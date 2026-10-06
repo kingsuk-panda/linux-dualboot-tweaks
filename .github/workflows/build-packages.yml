@@ -1,0 +1,67 @@
+name: Build packages
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-debian:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build .deb
+        run: |
+          mkdir -p deb/usr/local/bin deb/DEBIAN
+          cp tweakctl/tweakctl deb/usr/local/bin/
+          chmod 755 deb/usr/local/bin/tweakctl
+          cp tweakctl/packaging/deb-control deb/DEBIAN/control
+          dpkg-deb --build deb tweakctl_0.1.0_all.deb
+      - uses: actions/upload-artifact@v4
+        with: { name: deb, path: tweakctl_0.1.0_all.deb }
+
+  build-rpm:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install rpm-build
+        run: dnf install -y rpm-build
+      - name: Build .rpm
+        run: |
+          mkdir -p rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+          cp tweakctl/tweakctl rpmbuild/SOURCES/
+          cp tweakctl/packaging/tweakctl.spec rpmbuild/SPECS/
+          rpmbuild -bb --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/tweakctl.spec
+      - uses: actions/upload-artifact@v4
+        with: { name: rpm, path: rpmbuild/RPMS/noarch/*.rpm }
+
+  build-arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install base-devel
+        run: pacman -Sy --noconfirm base-devel
+      - name: Build package
+        run: |
+          useradd -m builder
+          chown -R builder:builder .
+          su builder -c "cd tweakctl/packaging && makepkg -sfC --noconfirm"
+      - uses: actions/upload-artifact@v4
+        with: { name: archpkg, path: tweakctl/packaging/*.pkg.tar.zst }
+
+  release:
+    needs: [build-debian, build-rpm, build-arch]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts }
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/deb/*
+            artifacts/rpm/*
+            artifacts/archpkg/*
