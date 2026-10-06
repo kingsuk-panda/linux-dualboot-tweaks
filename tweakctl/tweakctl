@@ -5,7 +5,7 @@ Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
 import argparse, os, re, shutil, subprocess, sys, urllib.request, json, platform
 
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -32,38 +32,64 @@ def distro():
 
 def die(msg): print(f"[FAIL] {msg}", file=sys.stderr); sys.exit(1)
 
+RED = "\033[91m"; GREEN = "\033[92m"; YELLOW = "\033[93m"; BOLD = "\033[1m"; RESET = "\033[0m"
+def ok_line(msg):    print(f"{GREEN}{BOLD}[OK]{RESET} {msg}")
+def fail_line(msg):  print(f"{RED}{BOLD}[FAIL]{RESET} {msg}")
+def warn_line(msg):  print(f"{YELLOW}{BOLD}[WARN]{RESET} {msg}")
+
 # ---------- hibernation ----------
 def hibernate_check():
-    print("== Hibernation check ==")
+    print(f"{BOLD}== Hibernation check =={RESET}")
     st = open("/sys/power/state").read().strip() if os.path.exists("/sys/power/state") else ""
-    print(f"  Power states: {st or 'unknown'}")
-    ok = "disk" in st
-    print(f"  [{'OK' if ok else 'NO'}] 'disk' hibernation supported by kernel")
     swaps = []
     if os.path.exists("/proc/swaps"):
         for line in open("/proc/swaps").read().splitlines()[1:]:
             parts = line.split()
-            size_gb = int(parts[2])/1024/1024
-            swaps.append((parts[0], size_gb))
-    for dev, sz in swaps:
-        print(f"  swap: {dev} {sz:.0f} GiB")
-    if not swaps:
-        print("  [NO] no swap — create swap >= RAM")
-    mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
-    if swaps and max(s for _, s in swaps) < mem*0.9:
-        print(f"  [WARN] swap ({max(s for _,s in swaps):.0f} GiB) < RAM ({mem:.0f} GiB)")
+            swaps.append((parts[0], int(parts[2])/1024/1024))
     cmdline = open("/proc/cmdline").read()
-    ok = "resume=" in cmdline
-    print(f"  [{'OK' if ok else 'NO'}] kernel has resume= param")
-    print(f"  [{'OK' if 'resume' in open('/etc/mkinitcpio.conf').read() else 'NO'}] mkinitcpio has resume hook"
-          if os.path.exists('/etc/mkinitcpio.conf') else "  [..] non-mkinitcpio distro")
+    fstab = open("/etc/fstab").read()
+    has_resume_param = "resume=" in cmdline
+    has_mkcpio = os.path.exists("/etc/mkinitcpio.conf") and "resume" in open("/etc/mkinitcpio.conf").read()
+    has_initramfs_tools = os.path.exists("/etc/initramfs-tools") and any("RESUME=" in open(os.path.join(r,f), errors="ignore").read() for r,_,files in os.walk("/etc/initramfs-tools") for f in files)
+    in_fstab = False
+    for dev, _ in swaps:
+        uuid = re.search(r'UUID="([^"]+)"', run(["blkid", dev], sudo=True, check=False).stdout or "")
+        if dev in fstab or (uuid and uuid.group(1) in fstab):
+            in_fstab = True
+            break
+    mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1024**3
+    if "disk" in st:
+        ok_line("Kernel supports hibernation (S4 'disk' state). States: " + st)
+    else:
+        fail_line(f"HIBERNATION IS NOT SUPPORTED. /sys/power/state = '{st or 'empty'}'.")
+    if swaps:
+        for dev, sz in swaps:
+            print(f"  swap: {dev} {sz:.0f} GiB")
+        if max(s for _,s in swaps) >= mem*0.9:
+            ok_line(f"Swap large enough ({max(s for _,s in swaps):.0f} GiB vs ~{mem:.0f} GiB RAM).")
+        else:
+            fail_line(f"Swap too small ({max(s for _,s in swaps):.0f} GiB). Needs ≈ RAM ({mem:.0f} GiB).")
+    else:
+        fail_line("No swap configured. Hibernation impossible without swap.")
+    if in_fstab:
+        ok_line("Swap is in /etc/fstab (auto-mounts at boot).")
+    else:
+        warn_line("Swap is NOT in /etc/fstab — resume may fail on cold boot.")
+    if has_resume_param:
+        ok_line("Kernel cmdline has resume= param.")
+    else:
+        fail_line("Kernel has NO resume= param — hibernated session won't be found.")
+    if os.path.exists("/etc/mkinitcpio.conf"):
+        ok_line("mkinitcpio has resume hook.") if has_mkcpio else fail_line("mkinitcpio is MISSING the resume hook.")
     if os.path.exists("/usr/lib/dracut") or os.path.exists("/usr/bin/dracut"):
         print("  [..] Fedora/RHEL: resume handled by dracut when resume= is set")
     if os.path.exists("/etc/initramfs-tools"):
-        ok = any("RESUME=" in open(p, errors='ignore').read() for p in
-                 [os.path.join(r,f) for r,_,files in os.walk('/etc/initramfs-tools') for f in files]) if os.path.exists('/etc/initramfs-tools') else False
-        print(f"  [{'OK' if ok else 'NO'}] Ubuntu initramfs-tools RESUME= set")
-    print(f"  Currently hibernated? {'yes' if os.path.exists('/run/ctos-hibernated') else 'no marker found'}")
+        ok_line("Ubuntu initramfs-tools RESUME= set.") if has_initramfs_tools else fail_line("Ubuntu initramfs-tools RESUME= missing.")
+    print()
+    if "disk" in st and swaps and has_resume_param and in_fstab and (has_mkcpio or has_initramfs_tools or os.path.exists('/usr/bin/dracut')):
+        print(f"{GREEN}{BOLD}>>> HIBERNATION IS ALREADY IMPLEMENTED ON THIS DEVICE — schedule with: systemctl hibernate <<<{RESET}")
+    else:
+        print(f"{RED}{BOLD}>>> HIBERNATION IS NOT FULLY SET UP — run: sudo tweakctl hibernate enable <<<{RESET}")
 
 def hibernate_enable():
     hiber_check = []
@@ -112,14 +138,29 @@ def hibernate_enable():
 
 # ---------- s3 ----------
 def s3_check():
+    print(f"{BOLD}== S3 sleep check =={RESET}")
     if os.path.exists("/sys/power/mem_sleep"):
         line = open("/sys/power/mem_sleep").read().strip()
-        print(f"mem_sleep modes: {line}")
-        print(f"S3 (deep) {'available' if 'deep' in line else 'NOT available on this hardware'}")
+        print(f"  mem_sleep modes: {line}")
+        if "deep" in line:
+            ok_line("S3 (deep) sleep is available on this hardware.")
+        else:
+            fail_line("S3 (deep) sleep is NOT available on this hardware.")
+        if "[deep]" in line:
+            ok_line("S3 (deep) is currently the ACTIVE suspend mode.")
+        else:
+            warn_line("S3 (deep) is NOT the active mode — run: sudo tweakctl s3 set-deep")
     else:
-        print("/sys/power/mem_sleep missing — check ACPI.")
-    cmd = open("/proc/cmdline").read()
-    print(f"mem_sleep_default= {'deep' if 'mem_sleep_default=deep' in cmd else 'not set to deep'}")
+        fail_line("/sys/power/mem_sleep missing — ACPI issue.")
+    if "mem_sleep_default=deep" in open("/proc/cmdline").read():
+        ok_line("mem_sleep_default=deep persists across reboots.")
+    else:
+        warn_line("mem_sleep_default=deep NOT set on kernel cmdline.")
+    print()
+    if os.path.exists("/sys/power/mem_sleep") and "[deep]" in open("/sys/power/mem_sleep").read():
+        print(f"{GREEN}{BOLD}>>> S3 DEEP SLEEP IS ACTIVE <<<{RESET}")
+    else:
+        print(f"{YELLOW}{BOLD}>>> S3 DEEP SLEEP IS NOT ACTIVE <<<{RESET}")
 
 def s3_set(mode="deep"):
     d, _ = distro()
@@ -133,17 +174,27 @@ def s3_set(mode="deep"):
 
 # ---------- plymouth ----------
 def plymouth_check():
-    print(f"plymouth installed: {has('plymouth') or os.path.exists('/usr/share/plymouth')}")
+    print(f"{BOLD}== Plymouth check =={RESET}")
+    if has('plymouth') or os.path.exists('/usr/share/plymouth'):
+        ok_line("Plymouth is installed.")
+    else:
+        fail_line("Plymouth is NOT installed.")
     cfg = "/etc/plymouth/plymouthd.conf"
     if os.path.exists(cfg):
         m = re.search(r"Theme=(.+)", open(cfg).read())
-        print(f"Current theme: {m.group(1) if m else 'default'}")
+        print(f"  Current theme: {m.group(1) if m else 'default'}")
     themes_dir = "/usr/share/plymouth/themes"
     if os.path.exists(themes_dir):
-        print(f"Installed themes: {', '.join(os.listdir(themes_dir))}")
-    print(f"mkinitcpio hook: {'plymouth' in open('/etc/mkinitcpio.conf').read() if os.path.exists('/etc/mkinitcpio.conf') else 'n/a'}")
-    cmd = open("/proc/cmdline").read()
-    print(f"Kernel 'splash': {'yes' if 'splash' in cmd else 'no — add splash to cmdline'}")
+        print(f"  Installed themes: {', '.join(os.listdir(themes_dir))}")
+    if os.path.exists('/etc/mkinitcpio.conf'):
+        if 'plymouth' in open('/etc/mkinitcpio.conf').read():
+            ok_line("mkinitcpio has plymouth hook.")
+        else:
+            fail_line("mkinitcpio MISSING plymouth hook.")
+    if 'splash' in open('/proc/cmdline').read():
+        ok_line("Kernel has 'splash'.")
+    else:
+        warn_line("Kernel missing 'splash' — plymouth won't show.")
 
 def plymouth_apply(theme):
     if not theme:
