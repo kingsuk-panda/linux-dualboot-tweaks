@@ -2,7 +2,7 @@
 set -e
 # build .deb, .rpm, and Arch package locally
 cd "$(dirname "$0")"
-VERSION=0.7.3
+VERSION=0.7.4
 
 # Arch package
 makepkg -sfC --noconfirm

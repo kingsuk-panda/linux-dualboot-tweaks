@@ -6,7 +6,7 @@ system changes (elevated via pkexec/sudo) and its state functions for checks.
 """
 import argparse, importlib.util, importlib.machinery, os, queue, re, shutil, subprocess, sys, threading, time
 
-VERSION = "0.7.3"
+VERSION = "0.7.4"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 
 # ---------- import the tweakctl module (file has no .py extension) ----------
@@ -67,7 +67,7 @@ def die(msg):
 
 try:
     import tkinter as tk
-    from tkinter import ttk, messagebox, simpledialog
+    from tkinter import simpledialog
 except ImportError:
     die("tkinter is missing. Install it for your distro:\n"
         "  Arch/Manjaro : sudo pacman -S tk\n"
@@ -83,6 +83,166 @@ DARK, LIGHT, ACCENT = "#111118", "#a0ffa0", "#8b5cf6"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 def strip(s): return ANSI.sub("", s)
+
+# ---------- pure-Python GIF decoder (no PIL needed) ----------
+def _lzw(raw, min_code_size):
+    """GIF LZW decompression -> bytes of palette indices."""
+    clear = 1 << min_code_size
+    end = clear + 1
+    codes = {i: bytes([i]) for i in range(clear)}
+    code_size = min_code_size + 1
+    next_code = end + 1
+    out = bytearray()
+    prev = None
+    bits = nbits = pos = 0
+
+    def read_code(size):
+        nonlocal bits, nbits, pos
+        while nbits < size:
+            if pos >= len(raw):
+                raise EOFError
+            bits |= raw[pos] << nbits
+            pos += 1
+            nbits += 8
+        c = bits & ((1 << size) - 1)
+        bits >>= size
+        nbits -= size
+        return c
+
+    while True:
+        try:
+            code = read_code(code_size)
+        except EOFError:
+            break
+        if code == clear:
+            codes = {i: bytes([i]) for i in range(clear)}
+            code_size = min_code_size + 1
+            next_code = end + 1
+            prev = None
+            continue
+        if code == end:
+            break
+        if code in codes:
+            entry = codes[code]
+        elif code == next_code and prev is not None:
+            entry = prev + prev[:1]
+        else:
+            break
+        out += entry
+        if prev is not None and next_code < 4096:
+            codes[next_code] = prev + entry[:1]
+            next_code += 1
+            if next_code >= (1 << code_size) and code_size < 12:
+                code_size += 1
+        prev = entry
+    return bytes(out)
+
+def _deinterlace(rows, w, h):
+    out = bytearray(w * h)
+    src = 0
+    for start, step in ((0, 8), (4, 8), (2, 4), (1, 2)):
+        for y in range(start, h, step):
+            out[y * w:(y + 1) * w] = rows[src * w:(src + 1) * w]
+            src += 1
+    return bytes(out)
+
+def _pal_list(pal):
+    out = [b"\x00\x00\x00"] * 256
+    for i, c in enumerate(pal):
+        if i >= 256:
+            break
+        out[i] = bytes(c)
+    return out
+
+def gif_frames(path):
+    """Yield (ppm_p6_bytes, delay_ms) — every composited frame of a GIF,
+    ready for tk.PhotoImage(data=ppm, format='ppm')."""
+    with open(path, "rb") as f:
+        data = f.read()
+    if data[:6] not in (b"GIF87a", b"GIF89a"):
+        raise ValueError("not a GIF")
+    pos = 6
+    sw = int.from_bytes(data[pos:pos + 2], "little"); pos += 2
+    sh = int.from_bytes(data[pos:pos + 2], "little"); pos += 2
+    packed = data[pos]; pos += 3
+    gct = []
+    if packed & 0x80:
+        n = 3 << ((packed & 0x07) + 1)
+        gct = [tuple(data[pos + i:pos + i + 3]) for i in range(0, n, 3)]
+        pos += n
+    bg_idx = data[9] if len(data) > 9 else 0
+
+    canvas = None
+    snap = None
+    prev_disposal = 0
+    gce = {"delay": 10, "trans": -1, "disposal": 0}
+    header = b"P6\n%d %d\n255\n" % (sw, sh)
+
+    while pos < len(data):
+        b = data[pos]; pos += 1
+        if b == 0x3B:
+            break
+        if b == 0x21:
+            label = data[pos]; pos += 1
+            payload = b""
+            while pos < len(data):
+                n = data[pos]; pos += 1
+                if n == 0:
+                    break
+                payload += data[pos:pos + n]; pos += n
+            if label == 0xF9 and len(payload) >= 4:
+                gce = {
+                    "disposal": (payload[0] >> 2) & 0x07,
+                    "delay": max(1, int.from_bytes(payload[1:3], "little")),
+                    "trans": payload[3],
+                }
+            continue
+        if b != 0x2C:
+            continue
+        left = int.from_bytes(data[pos:pos + 2], "little"); pos += 2
+        top = int.from_bytes(data[pos:pos + 2], "little"); pos += 2
+        w = int.from_bytes(data[pos:pos + 2], "little"); pos += 2
+        h = int.from_bytes(data[pos:pos + 2], "little"); pos += 2
+        ipacked = data[pos]; pos += 1
+        lct = None
+        if ipacked & 0x80:
+            n = 3 << ((ipacked & 0x07) + 1)
+            lct = [tuple(data[pos + i:pos + i + 3]) for i in range(0, n, 3)]
+            pos += n
+        interlace = bool(ipacked & 0x40)
+        min_code_size = data[pos]; pos += 1
+        raw = bytearray()
+        while pos < len(data):
+            n = data[pos]; pos += 1
+            if n == 0:
+                break
+            raw += data[pos:pos + n]; pos += n
+        indices = _lzw(bytes(raw), min_code_size)
+        if interlace:
+            indices = _deinterlace(indices, w, h)
+
+        pal = lct if lct is not None else gct
+        pal_list = _pal_list(pal)
+        if canvas is None:
+            canvas = bytearray([bg_idx]) * (sw * sh)
+        if prev_disposal == 2:
+            canvas = bytearray([bg_idx]) * (sw * sh)
+        elif prev_disposal == 3 and snap is not None:
+            canvas = bytearray(snap)
+        snap = bytearray(canvas)
+        trans = gce["trans"]
+        if (trans < 0 and left == 0 and top == 0
+                and w == sw and h == sh and not interlace):
+            canvas = bytearray(indices)
+        else:
+            for y in range(h):
+                base = (top + y) * sw + left
+                row = indices[y * w:(y + 1) * w]
+                for x in range(w):
+                    if row[x] != trans:
+                        canvas[base + x] = row[x]
+        rgb = b"".join(map(pal_list.__getitem__, canvas))
+        yield header + rgb, max(20, gce["delay"] * 10)
 
 # ---------- elevation ----------
 _elev = {"prefix": None, "password": None}
@@ -219,6 +379,67 @@ class Chooser(Dialog):
 
     def _pick(self):
         self.finish(self.items[self.sel][1])
+
+class Preview(tk.Toplevel):
+    """Plays a theme's animation inside the app. ESC or Close stops it."""
+    def __init__(self, app, title, path):
+        super().__init__(app)
+        self.app = app
+        self._path = path
+        self.title(title)
+        self.configure(bg=BG)
+        self.transient(app)
+        self.frames = None
+        self.img = None
+        self._after_id = None
+        self._closed = False
+        top = tk.Frame(self, bg=BG); top.pack(fill="x", padx=12, pady=(10, 4))
+        tk.Label(top, text=title, bg=BG, fg=FG,
+                 font=("Segoe UI", 11, "bold")).pack(side="left")
+        tk.Button(top, text="Close", command=self.close, width=10,
+                  font=("Segoe UI", 10, "bold")).pack(side="right")
+        self.view = tk.Label(self, bg=DARK)
+        self.view.pack(padx=12, pady=(4, 10))
+        self.bind("<Escape>", lambda e: self.close())
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.frames = gif_frames(path)
+        self._step()
+
+    def close(self):
+        self._closed = True
+        if self._after_id is not None:
+            self.after_cancel(self._after_id)
+            self._after_id = None
+        self.destroy()
+
+    def _step(self):
+        if self._closed or self.frames is None:
+            return
+        try:
+            ppm, delay = next(self.frames)
+        except StopIteration:
+            self._after_id = self.after(50, self._restart)
+            return
+        except Exception:
+            self.close()
+            return
+        try:
+            self.img = tk.PhotoImage(data=ppm, format="ppm")
+            self.view.config(image=self.img)
+        except Exception:
+            self.close()
+            return
+        self._after_id = self.after(delay, self._step)
+
+    def _restart(self):
+        if self._closed:
+            return
+        try:
+            self.frames = gif_frames(self._path)
+        except Exception:
+            self.close()
+            return
+        self._step()
 
 class Disclaimer(Dialog):
     def __init__(self, app):
@@ -543,36 +764,24 @@ class App(tk.Tk):
         self.worker.start(go)
 
     def act_preview(self, theme):
-        """Preview Plymouth theme. ESC or Close stops the preview."""
+        """Preview a Plymouth theme: play its animation inside the app.
+        Falls back to the live boot splash when no animation is available."""
+        theme = theme or TC.current_plymouth_theme() or "default"
+        self.log(f">> Loading animation for '{theme}'...")
+        try:
+            gif = TC.theme_animation_gif(theme)
+        except Exception as e:
+            gif = None
+            self.log(f"[WARN] could not build animation: {e}")
+        if gif:
+            self.log(f"[OK] Playing the '{theme}' animation in the app.")
+            Preview(self, f"Boot splash preview — {theme}", gif)
+            return
+        # no animation available: try the live boot splash (console sessions)
+        self.log(f">> No animation for '{theme}' — trying the live boot splash (needs root)...")
         def go():
-            self.log(f">> Previewing boot splash '{theme}' — watch your screen (needs root)...")
-            self.log(">> Press ESC or Close to stop the preview.")
-            # Run preview in a thread so we can kill it on ESC
-            self._preview_stop = threading.Event()
-            def run():
-                try:
-                    prefix = elevate_prefix()
-                    cmd = prefix + [TWEAKCTL_PATH, "plymouth", "preview", "--theme", theme]
-                    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                         text=True)
-                    self.worker.preview_proc = p
-                    while True:
-                        line = p.stdout.readline()
-                        if not line and p.poll() is not None:
-                            break
-                        if line:
-                            self.q.put(("log", line.rstrip()))
-                        if self._preview_stop.is_set():
-                            p.terminate()
-                            try:
-                                p.wait(timeout=5)
-                            except subprocess.TimeoutExpired:
-                                p.kill()
-                            self.q.put(("log", "[INFO] Preview stopped by ESC."))
-                            break
-                except Exception as e:
-                    self.q.put(("log", f"[FAIL] preview error: {e}"))
-            threading.Thread(target=run, daemon=True).start()
+            rc, out = run_cli(["plymouth", "preview", "--theme", theme], timeout=60)
+            self.log(out)
         self.worker.start(go)
 
     def stop_preview(self):
@@ -635,7 +844,7 @@ class App(tk.Tk):
 
     # ----- self test -----
     def selftest(self):
-        import io, contextlib
+        pass
         checks = []
         def ck(name, cond):
             checks.append((name, bool(cond)))
@@ -677,11 +886,28 @@ class App(tk.Tk):
             ck("ansi stripped", "\x1b" not in flat and "[OK]" in flat)
             # cli path resolution
             ck("cli path found", os.path.exists(TWEAKCTL_PATH))
-            # esc handling - preview stop
-            self._preview_stop = threading.Event()
-            ck("preview stop event exists", hasattr(self, "_preview_stop"))
-            self.stop_preview()
-            ck("stop_preview callable", True)
+            # GIF decoder: decode the first frames of the cached preview
+            import glob as _glob
+            gifs = _glob.glob(os.path.expanduser("~/.cache/tweakctl/*-preview.gif"))
+            if gifs:
+                it = gif_frames(gifs[0])
+                ppm, delay = next(it)
+                ck("gif decodes frame 1", ppm.startswith(b"P6\n") and delay >= 20)
+                ppm2, _ = next(it)
+                ck("gif decodes frame 2", ppm2.startswith(b"P6\n"))
+            else:
+                # no cached gif: at least verify the decoder rejects garbage
+                try:
+                    list(gif_frames("/etc/hostname"))
+                    ck("gif rejects non-gif", False)
+                except (ValueError, OSError):
+                    ck("gif rejects non-gif", True)
+            # theme animation source (uses ffmpeg/bundled gif)
+            try:
+                g = TC.theme_animation_gif("watch-dogs")
+                ck("theme_animation_gif", g is None or os.path.exists(g))
+            except Exception:
+                ck("theme_animation_gif", False)
         except Exception as e:
             import traceback; traceback.print_exc()
             ck(f"exception: {e}", False)
