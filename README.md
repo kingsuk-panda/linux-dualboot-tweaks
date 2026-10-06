@@ -1,7 +1,20 @@
 # Linux Hibernation, Suspend (S3 deep sleep) & Dual-Boot Tweaks
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Distro: Arch | Ubuntu | Fedora](https://img.shields.io/badge/Distro-Arch%20%7C%20Ubuntu%20%7C%20Fedora-blue)
+![Desktop: KDE | GNOME | XFCE](https://img.shields.io/badge/Desktop-KDE%20%7C%20GNOME%20%7C%20XFCE-green)
+![Windows 11 Dual Boot](https://img.shields.io/badge/Windows_11-Dual%20Boot-lightgrey)
+![Hibernate Working](https://img.shields.io/badge/Hibernate-Working-brightgreen)
+
 A practical, tested guide to **hibernating a Linux PC/laptop**, enabling **S3 deep sleep**, adding **Hibernate to the power menu** (KDE, GNOME, XFCE), fixing *"hibernate is not working / not resuming / session lost"*, plus custom ctOS boot/shutdown sounds, Plymouth boot themes, Oh My Zsh, and GRUB dual-boot with Windows 11. Covers **Arch Linux, Ubuntu, and Fedora**.
 
+## How to reproduce on your machine
+
+Each feature folder contains its own `README.md`, the actual config/script/theme files, and a `setup.sh` script that installs them (Arch; check each README for Ubuntu/Fedora equivalents).
+
+```bash
+cd hibernation && sudo ./setup.sh   # then reboot + systemctl hibernate
+```
 ## Features
 
 | Feature | Docs | Keywords |

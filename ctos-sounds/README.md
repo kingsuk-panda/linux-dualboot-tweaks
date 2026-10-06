@@ -15,12 +15,12 @@ ctos-sound /path/to/sound.ogg [volume]
 - `/usr/share/sounds/ctos/ctos-shutdown.ogg`
 - `~/.local/share/sounds/ctos-boot.ogg`
 
-**Play them directly from this README** (opens in your browser and plays):
+**Play them directly from this repo** (click to play in your browser):
 
-- [▶ ctos-boot.ogg](https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/main/ctos-sounds/ctos-boot.ogg)
-- [▶ ctos-shutdown.ogg](https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/main/ctos-sounds/ctos-shutdown.ogg)
+- [▶ ctos-boot.ogg](ctos-boot.ogg)
+- [▶ ctos-shutdown.ogg](ctos-shutdown.ogg)
 
-> GitHub markdown strips inline `<audio>` tags, so these are direct links to the raw audio files — clicking plays them natively in your browser. To listen locally: `pw-play ctos-boot.ogg`.
+> GitHub markdown strips inline `<audio>` tags, so these are direct links to the audio files — clicking plays them natively in your browser. To listen locally: `pw-play ctos-boot.ogg`.
 
 ### Boot sound — `~/.config/systemd/user/ctos-boot-sound.service`
 Plays `ctos-boot.ogg` at login. Works on KDE/GNOME/any session using systemd user manager + PipeWire.
