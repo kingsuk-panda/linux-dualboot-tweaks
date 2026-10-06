@@ -16,6 +16,7 @@ Or use the **tweakctl CLI** (Arch/Ubuntu/Fedora):
 
 ```bash
 sudo cp tweakctl/tweakctl /usr/local/bin/
+tweakctl                     # interactive TUI menu (↑/↓, Enter, q)
 tweakctl hibernate check     # does hibernation work?
 tweakctl hibernate enable    # make it work
 tweakctl s3 set-deep
@@ -23,6 +24,8 @@ tweakctl plymouth apply --theme watch-dogs
 tweakctl sound apply --name ctos-boot
 tweakctl update-check
 ```
+
+Prebuilt `.deb`, `.rpm` and Arch packages are attached to every [release](https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/releases).
 
 ```bash
 cd hibernation && sudo ./setup.sh   # then reboot + systemctl hibernate

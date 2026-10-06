@@ -57,7 +57,7 @@ tweakctl sound apply --name ctos-boot --volume 0.7
 tweakctl update-check        # checks GitHub for newer release
 ```
 
-TUI navigation: `↑`/`↓` to move, `Enter` to run, `q` to quit.
+TUI navigation: `↑`/`↓` to move, `Enter` to run, `PgUp`/`PgDn` to scroll long output, `q` (or `Esc`) to quit. Actions that need root ask for your sudo password on a clean screen first, then run without interruptions.
 
 ## How it works
 - **Hibernate enable** detects your distro and either adds `resume=UUID=...` to GRUB (Arch/Ubuntu) and rebuilds initramfs (`mkinitcpio -P`/`update-initramfs -u`), or uses `grubby` + `dracut` on Fedora. Always creates the fstab swap line if missing.

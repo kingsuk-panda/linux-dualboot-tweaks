@@ -5,7 +5,7 @@ Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
 import argparse, os, re, shutil, subprocess, sys, urllib.request, json, platform
 
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -31,6 +31,29 @@ def distro():
         return "unknown", ""
 
 def die(msg): print(f"[FAIL] {msg}", file=sys.stderr); sys.exit(1)
+
+def write_root(path, text):
+    """Write a file as root (directly if already root, else via sudo tee)."""
+    if os.geteuid() == 0:
+        with open(path, "w") as f:
+            f.write(text)
+        return
+    p = subprocess.run(["sudo", "tee", path], input=text, text=True, capture_output=True)
+    if p.returncode != 0:
+        die(f"Could not write {path}: {p.stderr.strip()}")
+
+def grub_set_param(param, value, path="/etc/default/grub"):
+    """Add or replace one kernel param inside GRUB_CMDLINE_LINUX_DEFAULT,
+    preserving every other argument the user has."""
+    txt = open(path).read()
+    m = re.search(r'^GRUB_CMDLINE_LINUX_DEFAULT="([^"]*)"', txt, re.M)
+    if m:
+        args = [a for a in m.group(1).split() if not a.startswith(param + "=")]
+        args.append(f"{param}={value}")
+        txt = txt[:m.start()] + f'GRUB_CMDLINE_LINUX_DEFAULT="{" ".join(args)}"' + txt[m.end():]
+    else:
+        txt = txt.rstrip("\n") + f'\nGRUB_CMDLINE_LINUX_DEFAULT="{param}={value}"\n'
+    write_root(path, txt)
 
 RED = "\033[91m"; GREEN = "\033[92m"; YELLOW = "\033[93m"; BOLD = "\033[1m"; RESET = "\033[0m"
 def ok_line(msg):    print(f"{GREEN}{BOLD}[OK]{RESET} {msg}")
@@ -92,39 +115,41 @@ def hibernate_check():
         print(f"{RED}{BOLD}>>> HIBERNATION IS NOT FULLY SET UP — run: sudo tweakctl hibernate enable <<<{RESET}")
 
 def hibernate_enable():
-    hiber_check = []
-    try:
-        subprocess.run(["swapon", "--show"], check=True, capture_output=True)
-    except subprocess.CalledProcessError:
+    # swap must be active
+    active = []
+    if os.path.exists("/proc/swaps"):
+        for line in open("/proc/swaps").read().splitlines()[1:]:
+            active.append(line.split()[0])
+    if not active:
         die("No swap active. Create swap >= RAM first.")
-    # find swap UUID
-    out = run(["blkid"], sudo=True, check=False).stdout
+    # Prefer the UUID of an *active* swap device, then any swap partition.
     swap_uuid = None
-    for line in out.splitlines():
-        if "TYPE=\"swap\"" in line:
-            m = re.search(r'UUID="([^"]+)"', line)
-            if m: swap_uuid = m.group(1); break
+    out = run(["blkid"], sudo=True, check=False).stdout
+    for dev in active + [l.split()[0] for l in out.splitlines()]:
+        m = re.search(r'UUID="([^"]+)"', run(["blkid", dev], check=False).stdout or "")
+        if m:
+            swap_uuid = m.group(1)
+            break
     if not swap_uuid:
-        die("Could not find any swap partition UUID.")
+        die("Could not find any swap UUID.")
     d, _ = distro()
     print(f"Detected distro: {d}")
     if d in ("arch",):
-        g = open("/etc/default/grub").read()
-        if "resume=" not in g:
-            run(["sed","-i",f"s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"loglevel=3 quiet resume=UUID={swap_uuid} mem_sleep_default=deep\"|","/etc/default/grub"], sudo=True)
+        grub_set_param("resume", f"UUID={swap_uuid}")
+        grub_set_param("mem_sleep_default", "deep")
         mc = open("/etc/mkinitcpio.conf").read()
-        if "resume" not in mc:
+        if not re.search(r'HOOKS=\([^)]*\bresume\b', mc):
             run(["sed","-i","s/filesystems/resume filesystems/","/etc/mkinitcpio.conf"], sudo=True)
         run(["grub-mkconfig","-o","/boot/grub/grub.cfg"], sudo=True)
         run(["mkinitcpio","-P"], sudo=True)
     elif d in ("ubuntu","debian","pop","linuxmint"):
-        with open(f"/etc/initramfs-tools/conf.d/resume","w") as f:
-            f.write(f"RESUME=UUID={swap_uuid}\n")
-        g = open("/etc/default/grub").read()
-        if "resume=" not in g:
-            run(["sed","-i",f"s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash resume=UUID={swap_uuid}\"|","/etc/default/grub"], sudo=True)
+        write_root("/etc/initramfs-tools/conf.d/resume", f"RESUME=UUID={swap_uuid}\n")
+        grub_set_param("resume", f"UUID={swap_uuid}")
         run(["update-initramfs","-u"], sudo=True)
-        run(["grub-update"], sudo=True) if has("grub-update") else run(["grub-mkconfig","-o","/boot/grub/grub.cfg"], sudo=True)
+        if has("update-grub"):
+            run(["update-grub"], sudo=True)
+        else:
+            run(["grub-mkconfig","-o","/boot/grub/grub.cfg"], sudo=True)
     elif d in ("fedora","rhel","centos","rocky","alma","opensuse-leap","opensuse-tumbleweed"):
         run(["grubby","--update-kernel=ALL",f"--args=resume=UUID={swap_uuid}"], sudo=True)
         run(["dracut","--regenerate-all","--force"], sudo=True)
@@ -133,7 +158,7 @@ def hibernate_enable():
     # fstab
     fstab = open("/etc/fstab").read()
     if swap_uuid not in fstab:
-        run(["bash","-c",f"echo 'UUID={swap_uuid} none swap defaults 0 0' >> /etc/fstab"], sudo=True)
+        write_root("/etc/fstab", fstab + f"UUID={swap_uuid} none swap defaults 0 0\n")
     print("Hibernation enabled. Reboot and test: systemctl hibernate")
 
 # ---------- s3 ----------
@@ -165,12 +190,21 @@ def s3_check():
 def s3_set(mode="deep"):
     d, _ = distro()
     if d in ("arch","ubuntu","debian","pop","linuxmint"):
-        if "mem_sleep_default=" not in open("/etc/default/grub").read():
-            run(["sed","-i",f"s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|& mem_sleep_default={mode}|","/etc/default/grub"], sudo=True)
-        run(["grub-mkconfig","-o","/boot/grub/grub.cfg"], sudo=True)
+        grub_set_param("mem_sleep_default", mode)
+        if has("update-grub"):
+            run(["update-grub"], sudo=True)
+        else:
+            run(["grub-mkconfig","-o","/boot/grub/grub.cfg"], sudo=True)
     elif d in ("fedora","rhel","centos","rocky","alma"):
         run(["grubby","--update-kernel=ALL",f"--args=mem_sleep_default={mode}"], sudo=True)
-    print(f"Set mem_sleep_default={mode}. Reboot to apply.")
+    else:
+        die(f"Distro '{d}' not supported for S3 toggle.")
+    # try to apply immediately for the current session too
+    run(["bash","-c",f"echo {mode} > /sys/power/mem_sleep"], sudo=True, check=False)
+    if os.path.exists("/sys/power/mem_sleep") and f"[{mode}]" in open("/sys/power/mem_sleep").read():
+        print(f"S3 mode set to '{mode}' — active now and saved across reboots.")
+    else:
+        print(f"mem_sleep_default={mode} saved — reboot to apply.")
 
 # ---------- plymouth ----------
 def plymouth_check():
@@ -230,6 +264,12 @@ def sound_list():
                 if f.endswith(('.ogg','.wav','.mp3')) and f not in [os.path.basename(v) for v in SOUNDS.values()]:
                     print(f"  {f:30s} ({p}/{f})")
 
+def player():
+    for p in ("pw-play", "paplay", "ffplay -nodisp -autoexit", "aplay"):
+        if has(p.split()[0]):
+            return p
+    return None
+
 def sound_apply(name_or_path, volume="0.7"):
     path = None
     if os.path.exists(os.path.expanduser(name_or_path)):
@@ -238,14 +278,30 @@ def sound_apply(name_or_path, volume="0.7"):
         path = os.path.expanduser(SOUNDS[name_or_path])
     if not path or not os.path.exists(path):
         die(f"Sound '{name_or_path}' not found. Run `tweakctl sound list`.")
-    if not has("pw-play"): die("pw-play (pipewire) not installed.")
-    print(f"Applying boot sound: {path} (volume {volume})")
-    # update user unit
+    pl = player()
+    if not pl:
+        die("No audio player found (need pw-play, paplay, ffplay or aplay).")
+    if pl.split()[0] == "pw-play":
+        play_cmd = f"/usr/bin/pw-play --volume={volume} {path}"
+    elif pl.split()[0] == "paplay":
+        play_cmd = f"/usr/bin/paplay --volume={int(float(volume)*65536)} {path}"
+    else:
+        play_cmd = f"{pl} {path}"
+    print(f"Applying boot sound: {path} (volume {volume}, player {pl.split()[0]})")
     unit = os.path.expanduser("~/.config/systemd/user/ctos-boot-sound.service")
+    os.makedirs(os.path.dirname(unit), exist_ok=True)
     if os.path.exists(unit):
-        run(["sed","-i",f"s|ExecStart=.*|ExecStart=/usr/bin/pw-play --volume={volume} {path}|",unit])
-        run(["systemctl","--user","daemon-reload"])
-    print(f"Done. Play: pw-play --volume={volume} {path}")
+        run(["sed","-i",f"s|ExecStart=.*|ExecStart={play_cmd}|",unit])
+    else:
+        with open(unit, "w") as f:
+            f.write("[Unit]\nDescription=ctOS boot sound\nAfter=graphical.target\n"
+                    "[Service]\nType=oneshot\n"
+                    f"ExecStart={play_cmd}\n"
+                    "[Install]\nWantedBy=default.target\n")
+    run(["systemctl","--user","daemon-reload"], check=False)
+    run(["systemctl","--user","enable","ctos-boot-sound.service"], check=False)
+    ok_line(f"Boot sound set: {path}")
+    print(f"  Preview: {play_cmd}")
 
 # ---------- update check ----------
 def update_check():
@@ -264,69 +320,184 @@ def update_check():
 
 # ---------- TUI ----------
 def tui():
-    import curses
+    import curses, io, contextlib, re as _re
+    ANSI = _re.compile(r"\033\[[0-9;]*m")
+    ver_short = VERSION
+    did, _ = distro()
+
+    # (label, action, needs_root)
     MENU = [
-        ("Hibernate → Check status", lambda: hibernate_check()),
-        ("Hibernate → Enable", lambda: hibernate_enable()),
-        ("S3 sleep → Check", lambda: s3_check()),
-        ("S3 sleep → Set deep", lambda: s3_set("deep")),
-        ("S3 sleep → Set s2idle", lambda: s3_set("s2idle")),
-        ("Plymouth → Check", lambda: plymouth_check()),
-        ("Plymouth → Apply theme", "PROMPT_THEME"),
-        ("Sound → List", lambda: sound_list()),
-        ("Sound → Apply", "PROMPT_SOUND"),
-        ("Update check", lambda: update_check()),
-        ("Quit", None),
+        ("Hibernate  > Check status",        lambda: hibernate_check(),        False),
+        ("Hibernate  > Enable",              lambda: hibernate_enable(),       True),
+        ("S3 sleep   > Check",               lambda: s3_check(),               False),
+        ("S3 sleep   > Set deep",            lambda: s3_set("deep"),           True),
+        ("S3 sleep   > Set s2idle",          lambda: s3_set("s2idle"),         True),
+        ("Plymouth   > Check",               lambda: plymouth_check(),         False),
+        ("Plymouth   > Apply theme",         "PROMPT_THEME",                   True),
+        ("Sound      > List",                lambda: sound_list(),             False),
+        ("Sound      > Apply",               "PROMPT_SOUND",                   False),
+        ("Update     > Check for updates",   lambda: update_check(),           False),
+        ("About / Quit",                     None,                             False),
     ]
-    def loop(stdscr):
-        curses.curs_set(0); stdscr.keypad(True)
-        sel = 0; output = ["Welcome to tweakctl UI.", "Use ↑/↓ to navigate, Enter to run, q to quit.", ""]
-        while True:
-            stdscr.clear()
-            h, w = stdscr.getmaxyx()
-            stdscr.addstr(0, 0, "┏━━━━━━━━ tweakctl ━━━━━━━━┓", curses.A_BOLD)
-            for i, (label, _) in enumerate(MENU):
-                if i+2 >= h: break
-                if i == sel:
-                    stdscr.addstr(i+1, 0, f"▶ {label}", curses.A_REVERSE)
-                else:
-                    stdscr.addstr(i+1, 0, f"  {label}")
-            out_x = 32
-            stdscr.addstr(0, out_x, "── Output ───────────────")
-            for j, line in enumerate(output[-(h-2):]):
-                if j+1 >= h-1: break
-                stdscr.addstr(j+1, out_x, line[:w-out_x-1])
+
+    def put(scr, y, x, text, attr=0):
+        h, w = scr.getmaxyx()
+        if y < 0 or y >= h or x < 0 or x >= w:
+            return
+        text = text.replace("\t", "    ").replace("\n", "")
+        limit = w - x - 1          # never touch the bottom-right corner
+        if limit <= 0:
+            return
+        try:
+            scr.addstr(y, x, text[:limit], attr)
+        except curses.error:
+            pass
+
+    def ensure_sudo(stdscr):
+        """Ask for the sudo password once, on a clean screen outside curses."""
+        if os.geteuid() == 0 or not has("sudo"):
+            return True
+        try:
+            curses.def_prog_mode()
+            curses.endwin()
+            print("\nAdministrator rights required — enter your sudo password.")
+            rc = subprocess.run(["sudo", "-v"], check=False).returncode
+        finally:
+            curses.reset_prog_mode()
             stdscr.refresh()
+        return rc == 0
+
+    def line_attr(scr, line):
+        if line.startswith("[OK]"):
+            return curses.color_pair(1) | curses.A_BOLD
+        if line.startswith("[FAIL]"):
+            return curses.color_pair(2) | curses.A_BOLD
+        if line.startswith("[WARN]"):
+            return curses.color_pair(3) | curses.A_BOLD
+        if ">>>" in line:                      # summary banner
+            if "NOT SUPPORTED" in line or "NOT FULLY" in line:
+                return curses.color_pair(2) | curses.A_BOLD
+            if "NOT" in line:
+                return curses.color_pair(3) | curses.A_BOLD
+            return curses.color_pair(1) | curses.A_BOLD
+        if line.startswith("=="):
+            return curses.A_BOLD
+        if line.startswith("  [..]"):
+            return curses.color_pair(4)
+        return 0
+
+    def loop(stdscr):
+        nonlocal sel, offset
+        if curses.has_colors():
+            curses.start_color()
+            curses.use_default_colors()
+            curses.init_pair(1, curses.COLOR_GREEN, -1)
+            curses.init_pair(2, curses.COLOR_RED, -1)
+            curses.init_pair(3, curses.COLOR_YELLOW, -1)
+            curses.init_pair(4, curses.COLOR_CYAN, -1)
+        curses.curs_set(0)
+        stdscr.keypad(True)
+        output = [
+            f"tweakctl v{ver_short} — {did} — ↑/↓ move · Enter run · PgUp/PgDn scroll · q quit",
+            "Pick an action on the left; its output appears here.",
+            "",
+        ]
+        offset = 0                      # lines scrolled back from the bottom
+        while True:
+            stdscr.erase()
+            h, w = stdscr.getmaxyx()
+            out_x = min(36, max(24, w // 2))
+
+            put(stdscr, 0, 0, f" tweakctl v{ver_short} · {did} ", curses.A_REVERSE)
+            put(stdscr, 0, out_x, " Output ", curses.A_REVERSE)
+            put(stdscr, 1, out_x, "─" * max(1, w - out_x - 1), curses.A_DIM)
+
+            for i, (label, _, _) in enumerate(MENU):
+                if i + 2 >= h - 1:
+                    break
+                if i == sel:
+                    put(stdscr, i + 2, 0, f"> {label}", curses.A_REVERSE | curses.A_BOLD)
+                else:
+                    put(stdscr, i + 2, 0, f"  {label}", curses.A_DIM if i == len(MENU) - 1 else 0)
+
+            body = h - 4               # header(2) + footer(1) + spare
+            start = max(0, len(output) - body - offset)
+            end = max(0, len(output) - offset)
+            for j, line in enumerate(output[start:end]):
+                put(stdscr, j + 2, out_x, line, line_attr(stdscr, line))
+
+            footer = " ↑/↓ Enter PgUp/PgDn scroll q quit "
+            put(stdscr, h - 1, 0, footer, curses.A_REVERSE)
+            if offset:
+                put(stdscr, h - 1, max(0, w - 14), f" {offset}↑ ", curses.A_REVERSE)
+            stdscr.refresh()
+
             k = stdscr.getch()
-            if k in (ord('q'), ord('Q')): break
-            elif k == curses.KEY_UP: sel = (sel-1) % len(MENU)
-            elif k == curses.KEY_DOWN: sel = (sel+1) % len(MENU)
-            elif k in (10, curses.KEY_ENTER):
-                label, fn = MENU[sel]
-                if fn is None: break
-                import io, contextlib, re
+            if k in (ord("q"), ord("Q"), 27):
+                break
+            elif k == curses.KEY_UP:
+                sel = (sel - 1) % len(MENU)
+            elif k == curses.KEY_DOWN:
+                sel = (sel + 1) % len(MENU)
+            elif k == curses.KEY_PPAGE:
+                offset = min(len(output) - 1, offset + body)
+            elif k == curses.KEY_NPAGE:
+                offset = max(0, offset - body)
+            elif k in (10, 13, curses.KEY_ENTER):
+                offset = 0
+                label, fn, needs_root = MENU[sel]
+                if fn is None:
+                    break
+                if needs_root and not ensure_sudo(stdscr):
+                    output = ["[FAIL] sudo authentication failed — action cancelled.", ""]
+                    continue
                 buf = io.StringIO()
                 try:
-                    if fn == "PROMPT_THEME" or fn == "PROMPT_SOUND":
-                        curses.echo(); curses.nocbreak()
-                        prompt = "Theme name: " if fn == "PROMPT_THEME" else "Sound name/path: "
-                        stdscr.move(h-1, out_x); stdscr.clrtoeol()
-                        stdscr.addstr(h-1, out_x, prompt); stdscr.refresh()
-                        val = stdscr.getstr(h-1, out_x + len(prompt), 40).decode().strip()
-                        curses.noecho(); curses.cbreak()
-                        with contextlib.redirect_stdout(buf):
-                            if fn == "PROMPT_THEME":
+                    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                        if fn == "PROMPT_THEME":
+                            themes = sorted(os.listdir("/usr/share/plymouth/themes")) \
+                                if os.path.exists("/usr/share/plymouth/themes") else []
+                            val = prompt_line(stdscr, h, out_x,
+                                              f"Theme ({'/'.join(themes) or 'none'}): ")
+                            if val:
                                 plymouth_apply(val)
                             else:
+                                buf.write("Cancelled.\n")
+                        elif fn == "PROMPT_SOUND":
+                            val = prompt_line(stdscr, h, out_x, "Sound name/path: ")
+                            if val:
                                 sound_apply(val, "0.7")
-                    else:
-                        with contextlib.redirect_stdout(buf):
+                            else:
+                                buf.write("Cancelled.\n")
+                        else:
                             fn()
+                except SystemExit:
+                    pass                # die() already wrote to the captured stream
+                except KeyboardInterrupt:
+                    buf.write("\nInterrupted.\n")
                 except Exception as e:
-                    buf.write(f"\n[ERROR] {e}")
-                raw = buf.getvalue() or "(no output)"
-                cleaned = re.sub(r"\033\[[0-9;]*m", "", raw)
+                    buf.write(f"\n[ERROR] {e}\n")
+                cleaned = ANSI.sub("", buf.getvalue()) or "(no output)"
                 output = cleaned.splitlines()
+
+    def prompt_line(stdscr, h, x, text):
+        """Single-line input on the last row; returns stripped text or ''."""
+        curses.echo()
+        curses.curs_set(1)
+        try:
+            stdscr.move(h - 1, 0)
+            stdscr.clrtoeol()
+            put(stdscr, h - 1, x, text, curses.A_BOLD)
+            stdscr.refresh()
+            val = stdscr.getstr(h - 1, min(x + len(text), stdscr.getmaxyx()[1] - 2), 60)
+            return val.decode(errors="replace").strip()
+        finally:
+            curses.noecho()
+            curses.curs_set(0)
+            stdscr.clrtoeol()
+            stdscr.refresh()
+
+    sel, offset = 0, 0
     curses.wrapper(loop)
 
 def main():
@@ -340,7 +511,16 @@ def main():
     sub.add_parser("update-check")
     sub.add_parser("tui")
     a = p.parse_args()
-    if a.command == "tui" or a.command is None:
+    if a.command is None:
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            tui()
+        else:
+            p.print_help()
+            print("\n(no TTY detected — showing help instead of the interactive UI)")
+        return
+    if a.command == "tui":
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            die("`tweakctl tui` needs an interactive terminal.")
         tui()
         return
     if a.command == "hibernate":
