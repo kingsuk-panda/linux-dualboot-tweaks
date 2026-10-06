@@ -1,0 +1,14 @@
+[Unit]
+Description=Play ctOS boot sound at login
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+# Give PipeWire/WirePlumber a moment to be ready, then play.
+ExecStartPre=/bin/sleep 2
+ExecStart=/usr/bin/pw-play --volume=0.7 %h/.local/share/sounds/ctos-boot.ogg
+RemainAfterExit=no
+
+[Install]
+WantedBy=graphical-session.target

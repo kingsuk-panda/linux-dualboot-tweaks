@@ -1,0 +1,14 @@
+[Unit]
+Description=Play ctOS resume sound (hibernate-off)
+# systemd-hibernate.service only completes AFTER resume + user.slice thaw,
+# so PipeWire is alive when this runs.
+After=systemd-hibernate.service systemd-hybrid-sleep.service
+Requires=systemd-hibernate.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'if [ -e /run/ctos-hibernated ]; then rm -f /run/ctos-hibernated; /usr/local/bin/ctos-sound /home/gen/.local/share/sounds/ctos-boot.ogg 0.7; fi'
+TimeoutStartSec=15
+
+[Install]
+WantedBy=hibernate.target hybrid-sleep.target

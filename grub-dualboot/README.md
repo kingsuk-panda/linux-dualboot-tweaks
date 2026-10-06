@@ -32,3 +32,6 @@ GRUB_DISABLE_OS_PROBER=false
 
 ## Limitations
 - Secure Boot: shim/mok not configured here — enable Secure Boot will require signed GRUB (`shim` on Ubuntu/Fedora handles it; bare Arch needs manual signing).
+
+## Bundled files
+- `default-grub` → `/etc/default/grub`

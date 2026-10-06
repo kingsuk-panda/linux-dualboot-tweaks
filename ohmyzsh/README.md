@@ -26,3 +26,8 @@ Then: `sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/mas
 ## Notes
 - This is distro-agnostic; same files on Arch/Ubuntu/Fedora/KDE/GNOME.
 - Backup note: `~/.zsh_history`, `~/.oh-my-zsh/custom/themes/violet.zsh-theme` are the only custom parts; reinstall Oh My Zsh and drop these files back in to reproduce.
+
+## Bundled files
+- `zshrc` → copy to `~/.zshrc`
+- `violet.zsh-theme` → `~/.oh-my-zsh/custom/themes/`
+- `plugins-backup/zsh-autosuggestions` etc. → `~/.oh-my-zsh/custom/plugins/`

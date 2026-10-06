@@ -32,3 +32,10 @@ Plays `ctos-boot.ogg` at login. Works on KDE/GNOME/any session using systemd use
 ## Limitations
 - No sound on pure TTY sessions (no PipeWire socket).
 - Sound may be missed if shutdown sound file is slow to decode — keep timeout (`TimeoutStopSec=15`).
+
+## Bundled files
+- `ctos-sound` → copy to `/usr/local/bin/`
+- `ctos-shutdown.ogg` / `ctos-boot.ogg` → copy to `/usr/share/sounds/ctos/` (boot sound expects `~/.local/share/sounds/ctos-boot.ogg`)
+- `ctos-hibernate-on.service`, `ctos-hibernate-off.service`, `ctos-sound-shutdown.service` → `/etc/systemd/system/`, then `sudo systemctl enable <name>`
+- `ctos-boot-sound.service` → `~/.config/systemd/user/`, then `systemctl --user enable ctos-boot-sound.service`
+- `ctos-gen.sh`, `ctos-shutdown-gen.sh`, `ctos-sound-helper.sh` — sound generation helpers

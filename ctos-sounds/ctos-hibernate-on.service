@@ -1,0 +1,12 @@
+[Unit]
+Description=Play ctOS hibernate sound (hibernate-on)
+# Run BEFORE systemd-sleep freezes user.slice (which contains PipeWire).
+Before=sleep.target systemd-hibernate.service systemd-hybrid-sleep.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c '/usr/bin/touch /run/ctos-hibernated; /usr/local/bin/ctos-sound /usr/share/sounds/ctos/ctos-shutdown.ogg 0.6'
+TimeoutStartSec=10
+
+[Install]
+WantedBy=hibernate.target hybrid-sleep.target

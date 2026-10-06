@@ -27,3 +27,7 @@ List available: `plymouth-set-default-theme --list`.
 ## Limitations
 - Requires a graphical boot environment; Plymouth does not render under Hyper-V/SSH/serial.
 - If the theme fails to load, system falls back to the `spinner`/text theme.
+
+## Bundled files
+- `plymouthd.conf` → `/etc/plymouth/plymouthd.conf`
+- `watch-dogs/` → `/usr/share/plymouth/themes/`

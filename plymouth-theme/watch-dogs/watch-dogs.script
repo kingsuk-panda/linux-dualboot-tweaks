@@ -1,0 +1,32 @@
+# Watch Dogs ctOS boot animation
+# Original frames by Gabs (https://github.com/1BB3/watch-dogs)
+# Adapted for Arch Linux / landscape displays by opencode.
+
+Window.SetBackgroundTopColor(0, 0, 0);
+Window.SetBackgroundBottomColor(0, 0, 0);
+
+# Frames are pre-rendered at 432x768 (portrait source fit to screen height),
+# padded to a 432x768 black canvas (1.png..223.png) and centered at runtime.
+frame_count = 223;
+frame = 0;
+tick = 0;
+
+sprite = Sprite();
+sprite.SetX(Window.GetX() + Window.GetWidth() / 2 - 216);
+sprite.SetY(Window.GetY() + Window.GetHeight() / 2 - 384);
+sprite.SetImage(Image("1.png"));
+
+fun refresh_callback ()
+  {
+    tick++;
+    # Advance one frame every other refresh (roughly half speed).
+    if (tick % 2 == 0)
+      {
+        frame++;
+        if (frame >= frame_count)
+          frame = 0;
+        sprite.SetImage(Image((frame + 1) + ".png"));
+      }
+  }
+
+Plymouth.SetRefreshFunction(refresh_callback);

@@ -1,0 +1,21 @@
+[Unit]
+Description=Play ctOS shutdown sound
+DefaultDependencies=no
+# Trigger only on poweroff/halt, NOT reboot (reboot stays silent).
+Conflicts=systemd-poweroff.service systemd-halt.service
+# At shutdown systemd orders stop jobs before start jobs and applies the inverse
+# of start-up order. Being After=user@1000.service means this unit is stopped
+# BEFORE the user session (which owns PipeWire), so ExecStop plays while the
+# audio server is still alive.
+After=user@1000.service
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/local/bin/ctos-sound /usr/share/sounds/ctos/ctos-shutdown.ogg 0.7
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

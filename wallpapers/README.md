@@ -13,3 +13,6 @@ Custom wallpapers and panda SVG assets.
 
 ## Notes
 - SVG works for app icons/avatars; for wallpaper use PNG/JPG for compatibility with all DEs.
+
+## Bundled files
+- `Pictures/` — the 4 wallpapers + panda SVGs

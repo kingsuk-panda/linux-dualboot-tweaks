@@ -52,3 +52,7 @@ systemctl hibernate
 ## Limitations
 - Never hibernate while the Windows NTFS partition (`sda4`) is mounted, and disable Windows Fast Startup so Windows itself isn't in a hibernated state at the same time.
 - If resume fails, your session is lost — check `journalctl -b` for `PM: hibernation` messages.
+
+## Bundled files
+- `mkinitcpio.conf` → Arch: `/etc/mkinitcpio.conf`
+- `fstab-swap` → swap line for `/etc/fstab`
