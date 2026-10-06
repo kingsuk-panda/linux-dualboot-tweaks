@@ -45,8 +45,8 @@ jobs:
     container: archlinux:latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install base-devel
-        run: pacman -Sy --noconfirm base-devel
+      - name: Install base-devel + tk
+        run: pacman -Sy --noconfirm base-devel tk
       - name: Build package
         run: |
           useradd -m builder
@@ -71,9 +71,9 @@ jobs:
       - name: Assemble AppDir
         run: |
           VER="${GITHUB_REF#refs/tags/v}"
-          mkdir -p AppDir/usr/bin AppDir/usr/share/applications
+          mkdir -p AppDir/usr/bin
           cp dist/tweakctl dist/tweakctl-gui AppDir/usr/bin/
-          cat > AppDir/usr/share/applications/tweakctl.desktop <<EOF
+          cat > AppDir/tweakctl.desktop <<EOF
           [Desktop Entry]
           Type=Application
           Name=tweakctl
