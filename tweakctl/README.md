@@ -37,6 +37,14 @@ sudo cp tweakctl /usr/local/bin/
 
 ## Usage
 
+Run the friendly TUI (no args):
+
+```bash
+tweakctl            # or: tweakctl tui
+```
+
+Or the direct commands:
+
 ```bash
 tweakctl hibernate check     # is hibernation working? swap, resume=, hooks
 tweakctl hibernate enable    # auto-configure resume= + initramfs + fstab
@@ -48,6 +56,8 @@ tweakctl sound list
 tweakctl sound apply --name ctos-boot --volume 0.7
 tweakctl update-check        # checks GitHub for newer release
 ```
+
+TUI navigation: `↑`/`↓` to move, `Enter` to run, `q` to quit.
 
 ## How it works
 - **Hibernate enable** detects your distro and either adds `resume=UUID=...` to GRUB (Arch/Ubuntu) and rebuilds initramfs (`mkinitcpio -P`/`update-initramfs -u`), or uses `grubby` + `dracut` on Fedora. Always creates the fstab swap line if missing.

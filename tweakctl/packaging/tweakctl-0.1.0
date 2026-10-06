@@ -5,7 +5,7 @@ Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
 import argparse, os, re, shutil, subprocess, sys, urllib.request, json, platform
 
-VERSION = "0.2.0"
+VERSION = "0.1.0"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -211,59 +211,7 @@ def update_check():
     except Exception as e:
         print(f"Could not check for updates: {e}")
 
-# ---------- TUI ----------
-def tui():
-    import curses
-    MENU = [
-        ("Hibernate → Check status", lambda: hibernate_check()),
-        ("Hibernate → Enable", lambda: hibernate_enable()),
-        ("S3 sleep → Check", lambda: s3_check()),
-        ("S3 sleep → Set deep", lambda: s3_set("deep")),
-        ("S3 sleep → Set s2idle", lambda: s3_set("s2idle")),
-        ("Plymouth → Check", lambda: plymouth_check()),
-        ("Plymouth → Apply theme", lambda: plymouth_apply(None)),
-        ("Sound → List", lambda: sound_list()),
-        ("Sound → Apply", lambda: sound_apply(input("name/path: "), "0.7")),
-        ("Update check", lambda: update_check()),
-        ("Quit", None),
-    ]
-    def loop(stdscr):
-        curses.curs_set(0); stdscr.keypad(True)
-        sel = 0; output = ["Welcome to tweakctl UI.", "Use ↑/↓ to navigate, Enter to run, q to quit.", ""]
-        while True:
-            stdscr.clear()
-            h, w = stdscr.getmaxyx()
-            stdscr.addstr(0, 0, "┏━━━━━━━━ tweakctl ━━━━━━━━┓", curses.A_BOLD)
-            for i, (label, _) in enumerate(MENU):
-                if i+2 >= h: break
-                if i == sel:
-                    stdscr.addstr(i+1, 0, f"▶ {label}", curses.A_REVERSE)
-                else:
-                    stdscr.addstr(i+1, 0, f"  {label}")
-            out_x = 32
-            stdscr.addstr(0, out_x, "── Output ───────────────")
-            for j, line in enumerate(output[-(h-2):]):
-                if j+1 >= h-1: break
-                stdscr.addstr(j+1, out_x, line[:w-out_x-1])
-            stdscr.refresh()
-            k = stdscr.getch()
-            if k in (ord('q'), ord('Q')): break
-            elif k == curses.KEY_UP: sel = (sel-1) % len(MENU)
-            elif k == curses.KEY_DOWN: sel = (sel+1) % len(MENU)
-            elif k in (10, curses.KEY_ENTER):
-                label, fn = MENU[sel]
-                if fn is None: break
-                # capture output of fn
-                import io, contextlib
-                buf = io.StringIO()
-                try:
-                    with contextlib.redirect_stdout(buf):
-                        fn()
-                except Exception as e:
-                    buf.write(f"\n[ERROR] {e}")
-                output = buf.getvalue().splitlines() or ["(no output)"]
-    curses.wrapper(loop)
-
+# ---------- main ----------
 def main():
     p = argparse.ArgumentParser(prog="tweakctl", description="Linux hibernation/S3/plymouth/ctOS tuner for Arch, Ubuntu, Fedora")
     p.add_argument("--version", action="version", version=VERSION)
@@ -273,11 +221,7 @@ def main():
     pl = sub.add_parser("plymouth"); pl.add_argument("action", choices=["check","apply"]); pl.add_argument("--theme")
     so = sub.add_parser("sound"); so.add_argument("action", choices=["list","apply"]); so.add_argument("--name"); so.add_argument("--volume", default="0.7")
     sub.add_parser("update-check")
-    sub.add_parser("tui")
     a = p.parse_args()
-    if a.command == "tui" or a.command is None:
-        tui()
-        return
     if a.command == "hibernate":
         hibernate_check() if a.action=="check" else hibernate_enable()
     elif a.command == "s3":
