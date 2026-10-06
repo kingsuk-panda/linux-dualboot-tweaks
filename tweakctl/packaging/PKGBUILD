@@ -12,8 +12,8 @@ source=("$pkgname-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux
 sha256sums=('SKIP' 'SKIP')
 
 package() {
-  install -Dm755 "$srcdir/$pkgname-$pkgver" "$pkgdir/usr/local/bin/tweakctl"
-  install -Dm755 "$srcdir/$pkgname-gui-$pkgver" "$pkgdir/usr/local/bin/tweakctl-gui"
-  install -Dm644 "$srcdir/../../tweakctl/tweakctl-gui.desktop" \
+  install -Dm755 "$srcdir/tweakctl-0.7.0" "$pkgdir/usr/local/bin/tweakctl"
+  install -Dm755 "$srcdir/tweakctl-gui-0.7.0" "$pkgdir/usr/local/bin/tweakctl-gui"
+  install -Dm644 "$srcdir/tweakctl-gui.desktop" \
     "$pkgdir/usr/share/applications/tweakctl-gui.desktop"
 }
