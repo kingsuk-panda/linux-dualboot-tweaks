@@ -71,7 +71,9 @@ jobs:
         run: |
           ~/.local/bin/pyinstaller --onefile --name tweakctl tweakctl/tweakctl
           ~/.local/bin/pyinstaller --onefile --name tweakctl-gui \
-            --add-data "tweakctl/tweakctl:tweakctl" tweakctl/tweakctl-gui
+            --add-data "tweakctl/tweakctl:tweakctl" \
+            --hidden-import urllib.request --hidden-import json \
+            tweakctl/tweakctl-gui
       - name: Assemble AppDir
         run: |
           VER="${GITHUB_REF#refs/tags/v}"
