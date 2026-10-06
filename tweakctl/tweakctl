@@ -5,7 +5,7 @@ Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
 import argparse, os, re, shutil, subprocess, sys, urllib.request, json, platform
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -272,9 +272,9 @@ def tui():
         ("S3 sleep → Set deep", lambda: s3_set("deep")),
         ("S3 sleep → Set s2idle", lambda: s3_set("s2idle")),
         ("Plymouth → Check", lambda: plymouth_check()),
-        ("Plymouth → Apply theme", lambda: plymouth_apply(None)),
+        ("Plymouth → Apply theme", "PROMPT_THEME"),
         ("Sound → List", lambda: sound_list()),
-        ("Sound → Apply", lambda: sound_apply(input("name/path: "), "0.7")),
+        ("Sound → Apply", "PROMPT_SOUND"),
         ("Update check", lambda: update_check()),
         ("Quit", None),
     ]
@@ -304,15 +304,29 @@ def tui():
             elif k in (10, curses.KEY_ENTER):
                 label, fn = MENU[sel]
                 if fn is None: break
-                # capture output of fn
-                import io, contextlib
+                import io, contextlib, re
                 buf = io.StringIO()
                 try:
-                    with contextlib.redirect_stdout(buf):
-                        fn()
+                    if fn == "PROMPT_THEME" or fn == "PROMPT_SOUND":
+                        curses.echo(); curses.nocbreak()
+                        prompt = "Theme name: " if fn == "PROMPT_THEME" else "Sound name/path: "
+                        stdscr.move(h-1, out_x); stdscr.clrtoeol()
+                        stdscr.addstr(h-1, out_x, prompt); stdscr.refresh()
+                        val = stdscr.getstr(h-1, out_x + len(prompt), 40).decode().strip()
+                        curses.noecho(); curses.cbreak()
+                        with contextlib.redirect_stdout(buf):
+                            if fn == "PROMPT_THEME":
+                                plymouth_apply(val)
+                            else:
+                                sound_apply(val, "0.7")
+                    else:
+                        with contextlib.redirect_stdout(buf):
+                            fn()
                 except Exception as e:
                     buf.write(f"\n[ERROR] {e}")
-                output = buf.getvalue().splitlines() or ["(no output)"]
+                raw = buf.getvalue() or "(no output)"
+                cleaned = re.sub(r"\033\[[0-9;]*m", "", raw)
+                output = cleaned.splitlines()
     curses.wrapper(loop)
 
 def main():
