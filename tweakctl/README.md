@@ -4,6 +4,31 @@ One CLI to check & enable **hibernation**, pick **S3 deep sleep**, select a **Pl
 
 ## Install
 
+### Arch (AUR-style, no root needed for PKGBUILD build)
+```bash
+cd tweakctl/packaging && makepkg -si
+# or from the release asset:
+sudo pacman -U tweakctl-0.1.0-1-any.pkg.tar.zst
+```
+To publish to the AUR, create an AUR4 account, then:
+```bash
+git clone ssh://aur@aur.archlinux.org/tweakctl.git
+cp PKGBUILD tweakctl/; cd tweakctl && makepkg --printsrcinfo > .SRCINFO && git add -A && git commit -m init && git push
+```
+
+### Ubuntu / Debian (.deb)
+```bash
+sudo dpkg -i tweakctl_0.1.0_all.deb
+# or build: cd tweakctl/packaging && ./build.sh
+```
+
+### Fedora / RHEL (.rpm)
+```bash
+sudo rpm -i tweakctl-0.1.0-1.noarch.rpm
+# or build: cd tweakctl/packaging && ./build.sh
+```
+
+### Any distro (raw script)
 ```bash
 git clone https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks
 cd linux-hibernate-dual-boot-tweaks/tweakctl

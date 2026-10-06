@@ -3,3 +3,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.tmp
+packaging/*.pkg.tar.zst
+packaging/*.deb
+packaging/rpmbuild/
+packaging/deb/
+packaging/src/
+packaging/pkg/
+*.zst

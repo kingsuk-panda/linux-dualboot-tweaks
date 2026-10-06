@@ -1,0 +1,15 @@
+# Maintainer: kingsuk-panda <kingsuk.panda.2004@gmail.com>
+pkgname=tweakctl
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Hibernation/S3/Plymouth/ctOS tuner CLI for Arch, Ubuntu, Fedora"
+arch=('any')
+url="https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks"
+license=('MIT')
+depends=('python')
+source=("$pkgname-$pkgver::https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/raw/v0.1.0/tweakctl/tweakctl")
+sha256sums=('SKIP')
+
+package() {
+  install -Dm755 "$srcdir/$pkgname-$pkgver" "$pkgdir/usr/local/bin/tweakctl"
+}
