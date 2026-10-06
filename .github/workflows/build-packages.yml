@@ -73,6 +73,27 @@ jobs:
           VER="${GITHUB_REF#refs/tags/v}"
           mkdir -p AppDir/usr/bin
           cp dist/tweakctl dist/tweakctl-gui AppDir/usr/bin/
+          python3 - <<'PYEOF'
+          import zlib, struct
+          W = H = 256
+          rows = b''
+          for y in range(H):
+              rows += b'\x00'
+              for x in range(W):
+                  cx, cy = x - 128, y - 128
+                  if cx*cx + cy*cy < 120*120:
+                      rows += bytes((46, 204, 113))
+                  else:
+                      rows += bytes((30, 30, 46))
+          def chunk(t, d):
+              c = struct.pack('>I', len(d)) + t + d
+              return c + struct.pack('>I', zlib.crc32(t + d))
+          png = b'\x89PNG\r\n\x1a\n'
+          png += chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0))
+          png += chunk(b'IDAT', zlib.compress(rows))
+          png += chunk(b'IEND', b'')
+          open('AppDir/tweakctl.png', 'wb').write(png)
+          PYEOF
           cat > AppDir/tweakctl.desktop <<EOF
           [Desktop Entry]
           Type=Application
@@ -80,7 +101,7 @@ jobs:
           Comment=Hibernation, S3 sleep, Plymouth boot splash and ctOS sounds
           Exec=tweakctl
           Icon=tweakctl
-          Categories=Settings;System;
+          Categories=System;
           Terminal=false
           EOF
           cat > AppDir/AppRun <<'EOF'
@@ -96,7 +117,7 @@ jobs:
       - name: Build AppImage
         run: |
           VER="${GITHUB_REF#refs/tags/v}"
-          VERSION="$VER" ./appimagetool --appimage-extract-and-run AppDir
+          ARCH=x86_64 VERSION="$VER" ./appimagetool --appimage-extract-and-run AppDir
           mv tweakctl-${VER}-x86_64.AppImage tweakctl-x86_64.AppImage
       - uses: actions/upload-artifact@v4
         with: { name: appimage, path: tweakctl-x86_64.AppImage }

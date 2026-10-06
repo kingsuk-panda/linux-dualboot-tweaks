@@ -8,8 +8,9 @@ url="https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 license=('MIT')
 depends=('python' 'tk')
 source=("$pkgname-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.7.2/tweakctl/tweakctl"
-        "$pkgname-gui-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.7.2/tweakctl/tweakctl-gui")
-sha256sums=('SKIP' 'SKIP')
+        "$pkgname-gui-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.7.2/tweakctl/tweakctl-gui"
+        "tweakctl-gui.desktop::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.7.2/tweakctl/tweakctl-gui.desktop")
+sha256sums=('SKIP' 'SKIP' 'SKIP')
 
 package() {
   install -Dm755 "$srcdir/tweakctl-$pkgver" "$pkgdir/usr/local/bin/tweakctl"
