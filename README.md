@@ -30,6 +30,13 @@ chmod +x tweakctl-x86_64.AppImage
 The AppImage bundles python3 + tkinter, so it works on Arch, Ubuntu, Fedora,
 and anything else — no distro packages, no toolchains, no install step.
 
+**Install AppImage as a traditional app** (appears in your apps menu):
+```bash
+./tweakctl-x86_64.AppImage --install
+# Log out and back in — Tweakctl appears in your apps menu
+# Uninstall with: ./tweakctl-x86_64.AppImage --uninstall
+```
+
 ```bash
 tweakctl                     # interactive TUI menu (↑/↓, Enter, q)
 tweakctl gui                 # graphical interface (needs tkinter)

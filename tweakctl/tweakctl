@@ -9,17 +9,6 @@ VERSION = "0.8.0"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
-# ---------- helpers ----------
-def run(cmd, sudo=False, check=True):
-    if sudo:
-        cmd = ["sudo"] + cmd
-    try:
-        return subprocess.run(cmd, check=check, text=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        print(f"ERROR running {' '.join(cmd)}:\n{e.stderr}", file=sys.stderr)
-        if check: sys.exit(1)
-        return e
-
 def has(cmd): return shutil.which(cmd) is not None
 
 def distro():
@@ -1222,6 +1211,98 @@ def tui():
     offset = 0
     curses.wrapper(loop)
 
+def _desktop_content(bindir):
+    return f"""[Desktop Entry]
+Type=Application
+Name=Tweakctl
+GenericName=System Tweaks
+Comment=Hibernation, S3 sleep, Plymouth boot splash and ctOS sounds
+Exec={os.path.join(bindir, "tweakctl")} gui
+Icon=tweakctl
+Categories=System;
+Terminal=false
+"""
+
+
+def install():
+    """Install tweakctl to ~/.local/bin with desktop file + icon (AppImage-friendly)."""
+    import base64
+    home = os.path.expanduser("~")
+    bindir = os.path.join(home, ".local", "bin")
+    appsdir = os.path.join(home, ".local", "share", "applications")
+    iconsdir = os.path.join(home, ".local", "share", "icons", "hicolor", "256x256", "apps")
+    for d in (bindir, appsdir, iconsdir):
+        os.makedirs(d, exist_ok=True)
+
+    # 1. copy self (works for AppImage, PyInstaller binary, or source script)
+    dst = os.path.join(bindir, "tweakctl")
+    try:
+        shutil.copy2(sys.executable, dst)
+        os.chmod(dst, 0o755)
+    except Exception as e:
+        die(f"Could not copy to {dst}: {e}")
+
+    # 2. GUI wrapper script
+    gui_wrapper = os.path.join(bindir, "tweakctl-gui")
+    with open(gui_wrapper, "w") as f:
+        f.write(f'#!/bin/sh\nexec "{dst}" gui\n')
+    os.chmod(gui_wrapper, 0o755)
+
+    # 3. desktop file
+    with open(os.path.join(appsdir, "tweakctl-gui.desktop"), "w") as f:
+        f.write(_desktop_content(bindir))
+
+    # 4. icon — find it next to the script or in the PyInstaller bundle
+    icon_src = None
+    here = os.path.dirname(os.path.realpath(__file__))
+    exe_dir = os.path.dirname(os.path.realpath(sys.executable))
+    for cand in (os.path.join(here, "tweakctl.png"),
+                 os.path.join(exe_dir, "tweakctl.png"),
+                 os.path.join(getattr(sys, "_MEIPASS", ""), "tweakctl.png")):
+        if cand and os.path.exists(cand):
+            icon_src = cand
+            break
+    if icon_src:
+        shutil.copy2(icon_src, os.path.join(iconsdir, "tweakctl.png"))
+    else:
+        print("  (icon not found — skipping)")
+
+    # 5. refresh caches
+    subprocess.run(["update-desktop-database", appsdir], capture_output=True)
+    subprocess.run(["gtk-update-icon-cache", "-f", "-t", os.path.dirname(iconsdir)],
+                   capture_output=True)
+
+    print(f"Installed:")
+    print(f"  CLI:     {dst}")
+    print(f"  GUI:     {gui_wrapper}")
+    print(f"  Desktop: {os.path.join(appsdir, 'tweakctl-gui.desktop')}")
+    print(f"  Icon:    {os.path.join(iconsdir, 'tweakctl.png')}")
+    print(f"\nLog out and back in (or run 'update-desktop-database {appsdir}')")
+    print(f"to see Tweakctl in your apps menu.")
+
+
+def uninstall():
+    """Remove tweakctl from ~/.local/bin, applications, and icons."""
+    home = os.path.expanduser("~")
+    paths = [
+        os.path.join(home, ".local", "bin", "tweakctl"),
+        os.path.join(home, ".local", "bin", "tweakctl-gui"),
+        os.path.join(home, ".local", "share", "applications", "tweakctl-gui.desktop"),
+        os.path.join(home, ".local", "share", "icons", "hicolor", "256x256", "apps", "tweakctl.png"),
+    ]
+    removed = []
+    for p in paths:
+        if os.path.exists(p):
+            os.remove(p)
+            removed.append(p)
+    if removed:
+        print("Removed:")
+        for p in removed:
+            print(f"  {p}")
+    else:
+        print("tweakctl is not installed.")
+
+
 def main():
     ex = """examples:
   tweakctl                       interactive menu (the easy way)
@@ -1246,6 +1327,8 @@ Startup in Windows first. Full text:  tweakctl disclaimer"""
         epilog=ex,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--version", action="version", version=VERSION)
+    p.add_argument("--install", action="store_true", help="install tweakctl to ~/.local/bin with desktop file + icon")
+    p.add_argument("--uninstall", action="store_true", help="remove tweakctl from ~/.local")
     sub = p.add_subparsers(dest="command")
     hib = sub.add_parser("hibernate", help="hibernation: check if it works / set it up")
     hib.add_argument("action", choices=["check","enable"])
@@ -1260,6 +1343,12 @@ Startup in Windows first. Full text:  tweakctl disclaimer"""
     sub.add_parser("tui", help="interactive menu")
     sub.add_parser("gui", help="launch the graphical interface (needs tkinter)")
     a = p.parse_args()
+    if a.install:
+        install()
+        return
+    if a.uninstall:
+        uninstall()
+        return
     if a.command is None:
         if sys.stdin.isatty() and sys.stdout.isatty():
             tui()

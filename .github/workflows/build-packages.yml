@@ -116,7 +116,10 @@ jobs:
           EOF
           cat > AppDir/AppRun <<'EOF'
           #!/bin/sh
-          HERE="$(dirname "$(readlink -f "$0")")"
+          HERE="$(dirname "$(read -f "$0")")"
+          if [ "$1" = "--gui" ]; then
+            exec "$HERE/usr/bin/tweakctl-gui"
+          fi
           exec "$HERE/usr/bin/tweakctl" "$@"
           EOF
           chmod +x AppDir/AppRun
