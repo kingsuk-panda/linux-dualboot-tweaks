@@ -1,12 +1,14 @@
 {
   "name": "tweakctl",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Interactive CLI to check/enable hibernation, toggle S3 sleep, switch plymouth boot themes and ctOS sounds — works on any Linux distro (Arch, Ubuntu/Debian, Fedora/RHEL).",
   "bin": {
-    "tweakctl": "./tweakctl"
+    "tweakctl": "./tweakctl",
+    "tweakctl-gui": "./tweakctl-gui"
   },
   "files": [
     "tweakctl",
+    "tweakctl-gui",
     "README.md"
   ],
   "scripts": {

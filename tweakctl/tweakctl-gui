@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""tweakctl-gui — graphical front-end for tweakctl (hibernation, S3, Plymouth, sounds).
+"""tweakctl-gui — modern graphical front-end for tweakctl.
 
-Works on any distro with python3 + tkinter. Reuses the tweakctl CLI for all
-system changes (elevated via pkexec/sudo) and its state functions for checks.
+Dark, flat, card-based UI with an icon sidebar, status pills,
+rounded buttons, toast notifications and an in-app Plymouth
+animation player. Works on any distro with python3 + tkinter.
+Reuses the tweakctl CLI for all system changes (elevated via
+pkexec/sudo) and its state functions for checks.
 """
 import argparse, importlib.util, importlib.machinery, os, queue, re, shutil, subprocess, sys, threading, time
 
-VERSION = "0.7.4"
+VERSION = "0.8.0"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 
 # ---------- import the tweakctl module (file has no .py extension) ----------
@@ -67,6 +70,7 @@ def die(msg):
 
 try:
     import tkinter as tk
+    from tkinter import font as tkfont
     from tkinter import simpledialog
 except ImportError:
     die("tkinter is missing. Install it for your distro:\n"
@@ -76,10 +80,17 @@ except ImportError:
 
 TC, TWEAKCTL_PATH = load_tweakctl()
 
-# ---------- colors ----------
-GREEN, RED, YELLOW, BLUE, GREY = "#2ecc71", "#e74c3c", "#f1c40f", "#3498db", "#7f8c8d"
-BG, FG, PANEL = "#1e1e2e", "#e0e0e0", "#2a2a3a"
-DARK, LIGHT, ACCENT = "#111118", "#a0ffa0", "#8b5cf6"
+# ---------- theme ----------
+BG, PANEL, CARD, BORDER = "#16181d", "#1f232b", "#242a35", "#303947"
+FG, DIM = "#e8ecf2", "#98a2b3"
+GREEN, RED, YELLOW, BLUE = "#2ecc71", "#e74c3c", "#f1c40f", "#3498db"
+ACCENT, HOVER = "#2ecc71", "#2a3140"
+FONT, MONO = "Segoe UI", "Consolas"
+PILL_BG = {"ok": "#12301e", "fail": "#3a1c17", "warn": "#38300e"}
+PILL_FG = {"ok": GREEN, "fail": RED, "warn": YELLOW}
+PILL_GLYPH = {"ok": "✓", "fail": "✗", "warn": "!"}
+
+LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAASYElEQVR42u2d228c1RnA9z/wCzjxbdd3O07s9Z3cN04CuSdACiGO2iUXSBBQg1SISiF+IElTCWlJoCpSoRYgxM3ClZKGqkhsEK2UKqQWPDSoPPiFd/8J0/OtvYm9M7Pey1zOzPw+6SdZSrRenzPf73znzJkzsRhBEARBEARBEARBEARBEARBEARBEARBEARBEARBEITW0do5mFSkFJOLZC2YVxgQGayugczi9XFIrhcyJ4jJ3jWUUJ2XVkwpZrnQoUrmFDOKCRlIyDA9R/hDiwk/xwULLjO/KIR0e/dIDdnnX9KnFpOe0h38JCcDMtKDEOMulmKM9KBjZZCRKSiZ6s68PsNoDwFhikVE50b8DBcUBPZOAxVBxXP8SUZ8CEtFwIJheYt7zPEhjGsEE2R48XJ/hgsFQs4s+wmsR33KfYgSVAMLyT+QURgAESTb3j1cE9GSf7hGGoCLACLOnCIZtVE/ufiHcwEAdA6o6e9ANHYTtnao5O9Qf3CH+sMBYCnhlkCL+gMV8woDACzJhDn56WCAlZki+QGQQCiSP0nZD1ARaZIfAAkEL9q6hmvUl5+jAwGqJhnE0T9LxwE4wrwMqAFK/v6MwgAAx5gNSvKn6CwAV5jUfN4/pOb9/fN0FIBrpHQe/WfoIABXmZOBltIfgKmAVgKYo2MAPKJzQJ/DRlva+ycVBgB4RlaPhb/OoRr1ZebpEADPSekw+mfoCABf8HdvQHPHQKJZfREA8A3/nhVQvzxDBwD4ij9VQGvnQE1ze3JeYQCAn/iwFqB+8QQND6AFM34IYI6GB9CEjv6El8mfotEBtGLSSwFM0eAAWjHnpQBY/APQj6QXyX+IhgbQkgzlPwDTABcF0JacUxgAoCHtLt4NaG7rT9DIAFqTdnP0T9PAAFoz5aYApmhgAK2Zc1EAfbMKA8ANEuuHjcQvthiJZ3YYibO7Fzi3997PwokxI3Fgk5EYGKTNbGjt6K9xSwA0MDif9JLwbxw0Em8/Uh4X9huJYylkYMb5h4MSbX3JhHQYgBOkRhdG9HKT3g6RiBIBbZtjwg0BpGhYqJqefiPxwkPOJX4hUhHQzpNuCGCShoWqR/0SS/3WD47maPvo2N2fW/5ypDQJyLpBtKuBLAIAvZCFuyJJ2/znx4yuqyeNtd88a/R992JRer5+xuiYThuJPx22/0wRjawvIADHBJDlQoaKkPl5kZFeEnqlpLej+8uncvKwFYGIJ4JtjgBA75Ffjd4y4lea+EvpvTmxUBFQCSAA0GzOb5GUMpcvpdQvlzX/OG09LRAJyOIjAkAA4OFqv8WCnyS/jNhOJ38eEYulBOSWIwKoQgCtSgCt6sMBSsHiVp/byb+iBGSXYUTa3wUB9M4rDIAV2TpqOed3o+wvtjhoORVYk4xEH7ghAC5sKA2LHX5OLfiVg+whsNwohAAQALjEA0OWt/q8Tv783QHTVECqAASAAMphdMMO48DD41ACPb8xL/xVc5+/Wjr/etxcBezfiAAQQHFOnX7RuPb3b4w7P/0MZdDzzrhph59fyS+s+9fzZgG88CACQADW9PSuNz6dvk4yV8C12ze1mPuvuBYQgWkAAqgQRv3KufjVhyYBeLnyb4dIyFQFyFoFAig94upDw84r5y6RyFVw6otLpkTzO/nzDw8Vfq/4/o2hvpYRQAXcmv2RRK6CAx+9pMXqvxUmARxLIQAEcI/9D4+TxAgAAURVAEeOPU0SV8nY+88tSzJZfNNGAAX7AeInxhBAeQJYZ4QZKoCoVQBbQ309I4Ay2bbzIEmMABCArQBa1AeHnOy3t0lkBwUgT//pkPy5LcGFAhjfGuprGQFUwJFjT5HIVTBx9XJwbgPufAABIAAzl/84RTJXyJUb01o9B1DseYB4sh8BIABr2BBUGTd++N6UaHJWn98CKDxOPH5hf+ivYQRQJSPrdxgX//CW8cn0dSiDnstHTAeB+Jn8udOBCkf/MzsQAAIAVxjfako4OZ3HLwG0f/pLswC2jCAABACuoObWVi/98OIswJJG/wiU/wgA/OXMDi3WAqxeJRbfvwEBIADwugoQ5Nx+r5Lf6kUhURn9XRFAU8taA6BUrNYCvDoZ2PJE4MW5f1TaHwGA/xI4t8dzCdgm//FtkWp7BAD+k0wacavXgSsJuHFnwO79gCKiqLU9AgA9GB20fXOvPC7sxN0BqSisFvzy8/6m7l4EgADAN2Tl3aoSWKwGZKuunN5bSeJb3edflvxKQFFsc+cF0Kw+GKBSVCLaSmBJRSAHeNo9PyDVgvybCMNuxF9W9nf1Rra9EQDoh0rI+NldRRPXqkIo6//nF/wi3tYIAPTl0U0rVgOVkCv5twzTvggAAlENyKEcDoggl/j7NtCmCAACiUre+MSDZckgt6vvzHZGfAQAoWJkcEEIUh0Iaj5/92dF085Ro6kvSTshAADwUAA9BgAEAwQAgAAQAAACQAAACKCaaFQfCgDBAAEAIAAEEGi2DOW2zTaNb1ngeOrezwr598audbQTeCCAhPpgcJfOdQv75Mt8YCb35JuSQ2NvH20IORBAkFCJ23RmuzMPxLy8y2jcPESbIgAEEIgR/8mU40/F3RUBFQECQACaMjyQe6DFzWfj5eGapr3raWsE4IQA1hjgDJKUKyW6HHUlB2fanaArR2jJOftyEKa8eafY58n0gnaPFghA1+QvUvJLIkvSV3JQpsig9YOjxacEnWvpAwSAAHxL/kc32iaonHPnxNHYIgK7qUJ8Yif9gAAQgC/sGLEd9Z1+UYZUEHbVgFQg9AcCQABe0ttnedqNnGzr5ltz7Y7MFhnRLwgAAXiEzL+9Tv5iEhAZsR6AABCAXyv+ao5eyYswnHxNNncGEAAC8GL0t7jX7+VrsvO3DK0WBhc2CtFHCAABeDb6y9tvvEz+PPLGHaoABFBxNKgPhfKwmvt7WfoXUrhhSNYCGjrX0lchxHkBxNUHR4jBkW3G+UtXjE+m/2Zkv/3OuPPTz2Vx44fvtRn9i1UBV25Ml/23BQHpM+k76UPpy6hdvy4IoNuICr999WLVF6Aklt9zf6v9AYXf6dQXl0IpgEKkT6N0DSOACnnz7fccueAksQqTzc/kz1O4QWj03ZOREIAgfYsAEIAtjx094djFNvb+c8sSTRJPBwHIluNCMd367/8iIwHpYwSAACypZK5vR2GSyVN7Oggg96xAwXf79N/ZyAhA+hgBIAATW8f2OXqhufWwT7X0fP1MpAUgSF8jAASwjL0HjiCAiCB9jQAQgGvzf5lTFyaZ3ILTQQDy5GHhd3vvn9cRAAKgAqACQAAIIMKLgLdmf0QAIUf6mEVABODaBqA8cn89KLcBZddiVAQQlQ1BCKBCrn55w5EL7YnPzpkeAdZBALIdeen36nlnPDLJL33LRqCKBdBlRIHONUPGJ59fq/piu/jVh6aR1umjvyqh8LFgEVUUkl/6VPo2KtcxAqiS46eer6oauHb7pkkAcjqPn8kvJw4XficRVdhHfenLqF2/zgugSX0wlEX8wj7TNMCLY8BKfQ5AaFi7jr4KIY4LoF59KJRH4yMbtLkbYLX63/TrHfRTSEEAOtC+xvI0YK/XAqTqsHp7UMPGAfoIASAAV6uAJzb7diJwsZOBm15+iP5BAAjAkyqgcC3AwwVBq4U/oX6oj75BAAjAC6TUtkpCtyVgl/xSldAvCAAB+DwVyJ8T6MZ0wGrHH6U/AkAAPtJ0esz2/YCySu/UOwDs3gsYf21PbkpCXyAABODXeoBKQrs3BMuUoNJjw6WKyI36dm8GfuMg834EgAB0rgSWPjgk8/eVZCBJL0d82b0ElJEfATgogE4DnKPxkfVFk3bp7kERgiDrBfmfre7rW875T29Tyd9Nm0cMBBAEVEkef213aSIok9xbf7YP0cYIAAHoTsOeUcu9ApUmfuMTmxj1EQACCJwI1Igt+/MrSnxVSYhISHxwRwCN6oPBMxo29udGchGC3LsXJMnzPwvy7w1jqsxv66bNYBkIAAABOBd16kMBIBggAAAEgAAAEAACAEAACAAAAVQogA4DAIIBAoDIUD/YazTsGcnti8iR3nLvZ9kVOTZo1K3tQQAIAMKCJLxskrI6dNV2t+SFfUajPBy1sR8BIAAIHG1duRG9nKQvJgORCAJAABCEEf/h9Y4kvpUIwlgRIAAIzagvzz2Uldg2pyIVQ9YNEEAxATSoDwbwEFncW2nUl0NSuq6etD1TUU5Nkn+T49LkfQxFD095bXdOOGFoOwQAgaZh94h98qsRXhK6kvMT5a1MxY5Qi59XU4KBXgSAAMC3kV8lYLER34lj1EUEdhWBSKCutQsBIADwnJ4e65FfjfpyUKrT70/omE7bTwcQAAIAb2myOiNRJb+bL1S1fYOSLAwigIVY3dBuALhJw5GNnif/iu9Q3JAMZFsiAAgWPWssE1Dee+DVW5StpgOyHoAAEAC4TOPT20zJJwnpVfLnsVoYrN89jAC4SMHL0V9efOLGS1NLuTsQhioAAUCg5/5urPiXitU+gbqArQUggCpJDm02Xv/9m8bHn18zst9+Z9z56WdwidF3T5oW/vxKfrsqQKYoCCAinP3deRLTI2788L0Wc/+V1gKCNg1AABWSeetdEtNDrtyYNgnAbl+/l+RetV7wvWStAgGEmMNHniQpPWbi6mVTovmd/IJIyHQ3YNtghAVQrz445DDX954DH720LMmk9NZBAHIHolAAslgZlGsZAZTJpq27SUgNBND6wVEtBCAggGUCaDPCzK69h0lIBFCCAIJxPSOAMjn8eJqE9IGx958zPe6rjQAKThZq+NVmBEAFAFQACCCU3PrPHZISASCAqArg7Cuvk5Qec+qLS8G5DbhrOLoCWKU+NApcvZ4lMT3k4lcfmhLNi+f/V0IOGjVtBOpfG5jrGAFUSFtn0vj4s6skp0dcu33TlGiSfH4LQBYjl20FfuNgoK5jBFAl6RPPUg14RM8746ZHgf1Mfjlt2PQw0PPbEQCAGzQ+ndLqeQCr5wBk/o8AAFxA5taFCefX3YDcFuCC+/9BK/8RAASOppce1GItoHDun7/9hwC4SMFF6tb3+XYicLGTgXOjf0sHAlhV15pVGABuIQtthQkoTwd6cTZg7hQgi5eK1h8aDWRbIgAIHs3tlm8FclsCdskv05KgtiUCgEBS94D1ewFFAm5MB+S9A1bJnyv9lZAQAAIAj6nfNWT7VmCnFgalorB7L6Ak/+r+nkC3IQKAYK8HPJWyfUOw3CKsZp+ALPbJZiO7zxcBBb393BBAhgsTtKgEluwYlIqglKmBCCM34luU+2Ea+ReZdUMAk1yU4MeagOXrwm0qA0Hu5ed/tnrVl+XrwF/dbazu7gpLu2XdEMAhLkjw6+6A1S1Cp2h4fEPY2izjhgBSXIzgdzVgtWOwUmSdIUSj/lImY25ErfpwAL9ZpebpDSp5S50aLCv1z+8z6mXEV4kf4jZKuSWAOS5A0E0GdQdHc0JoVNWBIPP5/M+CHOZZJyv74U76pSRcEkDLjMIAAG2Zj7kV6sMnaGAArZlxUwBJGhhAayZibkbt6pZ5hQEAGqIGabcFMENDA2jJfMztUL8kTUMDaMmU6wJYVddWQ0MDaMmhmBfBNAAgguU/0wCACJf/3A0A0Jak1wLI0OgAWjAb8zrUL03Urm42AMB30jE/Qv3iKRofwFfmYn6F+uWp+9WXAADfmIz5GeoLZOkEAF+Yr61rrfFbAAk6AsAX0jEdQn2RKToDwFPmYrqElCH3r2qeVxgA4AmpmE6hvtAEnQLgCTMxHUN9sVk6B8BVpNJO6CqAJB0E4CoTMZ2DqQBAxEp/swQSWYUBAI4xX7va53v+ZewQrFFfeI5OA3CMZCxIIV9YrEXHAVRNOhbEkC9O5wFUxVQsyIEEACKa/EskkKEzAcpiNhamEJvRqQClJb8spMfCFvcpCSgMALAlnMm/RAJpOhnAkqlYFOK+WiWBWvUHA0CeaCT/EgkkFfN0PEBA7/M78NxAjfrjZ7kAIKLIAJiMRT3uq41PKgyACDFz/6pETYy4K4GUYo4LA0KOGvXjE2S89V6BGqoBCPOor0iQ6StXAwlFlgsGQoJUtikyu7JpwSwXEAS43E+TydWLII0IIGAj/iSLfO5UBDNcYKAps4z43q0RTHLXADQp86cU3M/3SQZJRQYZgA9Jf4gM1K8ySC92DkIAJxNepp4TjPTB21eQWuy4ycVbi9xehGJz+OxiRTm5eO1w354gCIIgCIIgCIIgCIIgCIIgCIIgCIIgCIIgCIIgCE3j/9rLVtha356WAAAAAElFTkSuQmCC"
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 def strip(s): return ANSI.sub("", s)
@@ -292,6 +303,7 @@ class Worker:
         if self.busy:
             return
         self.busy = True
+        self.app.set_busy(True)
         self.app.set_buttons_state("disabled")
         def wrap():
             try:
@@ -309,11 +321,253 @@ class Worker:
                     self.app.log(rest[0])
                 elif kind == "done":
                     self.busy = False
+                    self.app.set_busy(False)
                     self.app.set_buttons_state("normal")
                     self.app.refresh()
         except queue.Empty:
             pass
         self.app.after(100, self.poll)
+
+# ---------- widgets ----------
+def _rounded(canvas, x1, y1, x2, y2, r, fill):
+    """Fill a rounded rectangle on a canvas (arcs + rects, no border)."""
+    canvas.create_rectangle(x1 + r, y1, x2 - r, y2, fill=fill, outline="")
+    canvas.create_rectangle(x1, y1 + r, x2, y2 - r, fill=fill, outline="")
+    for cx, cy in ((x1 + r, y1 + r), (x2 - r, y1 + r),
+                   (x1 + r, y2 - r), (x2 - r, y2 - r)):
+        canvas.create_oval(cx - r, cy - r, cx + r, cy + r,
+                           fill=fill, outline="")
+
+class RButton(tk.Canvas):
+    """Flat rounded button with hover + press feedback."""
+    def __init__(self, parent, text, command=None, accent=False,
+                 width=170, height=34, bg=None):
+        self.bg = bg if bg is not None else parent["bg"]
+        super().__init__(parent, width=width, height=height,
+                         highlightthickness=0, bg=self.bg, takefocus=True)
+        self.text = text
+        self.command = command
+        self.accent = accent
+        self._hover = False
+        self._down = False
+        self.bind("<Enter>", lambda e: self._hover_changed(True))
+        self.bind("<Leave>", lambda e: self._hover_changed(False))
+        self.bind("<ButtonPress-1>", lambda e: self._down_changed(True))
+        self.bind("<ButtonRelease-1>",
+                  lambda e: (self._down_changed(False), self.fire()))
+        self.bind("<Configure>", lambda e: self.draw())
+        self.bind("<Return>", lambda e: self.fire())
+        self.bind("<space>", lambda e: self.fire())
+        self.draw()
+
+    def _app(self):
+        w = self.master
+        while w is not None and not isinstance(w, App):
+            w = getattr(w, "master", None)
+        return w
+
+    def _locked(self):
+        app = self._app()
+        return app is not None and (app.worker.busy or app.ui_locked)
+
+    def _hover_changed(self, on):
+        if self._hover != on:
+            self._hover = on
+            self.draw()
+
+    def _down_changed(self, on):
+        if self._down != on:
+            self._down = on
+            self.draw()
+
+    def fire(self):
+        if self.command and not self._locked():
+            self.command()
+
+    def draw(self):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 10 or h < 10:
+            return
+        r = min(9, h // 2)
+        if self.accent:
+            base = "#25a25a" if self._down else ("#3ddc84" if self._hover else ACCENT)
+            fg = "white"
+        else:
+            base = "#171c25" if self._down else (HOVER if self._hover else PANEL)
+            fg = FG
+        _rounded(self, 1, 1, w - 1, h - 1, r, base)
+        self.create_text(w / 2, h / 2, text=self.text, fill=fg,
+                         font=(FONT, 10, "bold"))
+
+class Pill(tk.Canvas):
+    """Compact status pill: tinted pill + glyph + short label."""
+    def __init__(self, parent, kind, text):
+        self.kind, self.text = kind, text
+        self._font = tkfont.Font(font=(FONT, 9, "bold"))
+        w = self._font.measure(text) + 44
+        super().__init__(parent, width=w, height=24,
+                         highlightthickness=0, bg=parent["bg"])
+        self.draw()
+
+    def draw(self):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 10:
+            return
+        r = h // 2
+        base = PILL_BG[self.kind]
+        _rounded(self, 0, 0, w, h, r, base)
+        self.create_text(13, h / 2, text=PILL_GLYPH[self.kind],
+                         fill=PILL_FG[self.kind], font=(FONT, 10, "bold"),
+                         anchor="w")
+        self.create_text(26, h / 2, text=self.text,
+                         fill=PILL_FG[self.kind], font=self._font, anchor="w")
+
+class Card(tk.Frame):
+    """Bordered card container."""
+    def __init__(self, parent):
+        super().__init__(parent, bg=CARD, highlightthickness=1,
+                         highlightbackground=BORDER)
+
+class NavButton(tk.Canvas):
+    """Sidebar item: glyph + label, accent bar when active."""
+    def __init__(self, parent, glyph, label, command, app):
+        self.app, self.command, self.glyph, self.label = app, command, glyph, label
+        self.active = False
+        self._hover = False
+        super().__init__(parent, height=42, highlightthickness=0,
+                         bg=PANEL, takefocus=True)
+        self.bind("<Enter>", lambda e: self._hover_changed(True))
+        self.bind("<Leave>", lambda e: self._hover_changed(False))
+        self.bind("<ButtonRelease-1>", lambda e: self.fire())
+        self.bind("<Configure>", lambda e: self.draw())
+        self.bind("<Return>", lambda e: self.fire())
+        self.bind("<space>", lambda e: self.fire())
+        self.draw()
+
+    def _hover_changed(self, on):
+        if self._hover != on:
+            self._hover = on
+            self.draw()
+
+    def fire(self):
+        if self.command and not (self.app.worker.busy or self.app.ui_locked):
+            self.command()
+
+    def draw(self):
+        self.delete("all")
+        w, h = self.winfo_width(), self.winfo_height()
+        if w < 10:
+            return
+        if self.active:
+            self.create_rectangle(0, 0, 4, h, fill=ACCENT, outline="")
+            base = "#22303f"
+            fg, glyph_fg = FG, ACCENT
+        elif self._hover:
+            base = HOVER
+            fg, glyph_fg = FG, DIM
+        else:
+            base = PANEL
+            fg, glyph_fg = DIM, DIM
+        self.create_rectangle(0, 0, w, h, fill=base, outline="")
+        self.create_text(16, h / 2, text=self.glyph, fill=glyph_fg,
+                         font=(FONT, 12), anchor="w")
+        self.create_text(44, h / 2, text=self.label, fill=fg,
+                         font=(FONT, 10, "bold" if self.active else "normal"),
+                         anchor="w")
+
+class ScrollFrame(tk.Frame):
+    """Scrollable page container (works on small windows too)."""
+    def __init__(self, parent, bg=BG):
+        super().__init__(parent, bg=bg)
+        self.vbar = tk.Scrollbar(self, orient="vertical",
+                                 bg=PANEL, troughcolor=BG,
+                                 highlightthickness=0)
+        self.canvas = tk.Canvas(self, bg=bg, highlightthickness=0,
+                                yscrollcommand=self.vbar.set)
+        self.vbar.config(command=self.canvas.yview)
+        self.vbar.pack(side="right", fill="y")
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.inner = tk.Frame(self.canvas, bg=bg)
+        self.win = self.canvas.create_window((0, 0), window=self.inner,
+                                             anchor="nw")
+        self.inner.bind("<Configure>", self._on_resize)
+        self.canvas.bind("<Configure>", self._on_width)
+        self.canvas.bind("<MouseWheel>", self._wheel)
+        self.inner.bind("<MouseWheel>", self._wheel)
+        self.canvas.bind("<Button-4>", self._wheel)
+        self.canvas.bind("<Button-5>", self._wheel)
+        self.inner.bind("<Button-4>", self._wheel)
+        self.inner.bind("<Button-5>", self._wheel)
+
+    def _on_resize(self, e):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.canvas.itemconfig(self.win, width=e.width)
+
+    def _on_width(self, e):
+        self.canvas.itemconfig(self.win, width=e.width)
+
+    def _wheel(self, e):
+        d = 0
+        if e.num == 4:
+            d = -1
+        elif e.num == 5:
+            d = 1
+        elif hasattr(e, "delta"):
+            d = -int(e.delta / 120)
+        if d:
+            self.canvas.yview_scroll(d, "units")
+            return "break"
+
+class Toast(tk.Toplevel):
+    """Slide-in notification at the bottom-right; auto-dismisses."""
+    LIFE = 2800
+
+    def __init__(self, app, kind, text):
+        super().__init__(app)
+        self.app = app
+        self.kind = kind
+        self.overrideredirect(True)
+        self.configure(bg=CARD)
+        self.attributes("-topmost", True)
+        box = tk.Frame(self, bg=CARD, highlightthickness=1,
+                       highlightbackground=BORDER)
+        box.pack(fill="both", expand=True, padx=1, pady=1)
+        row = tk.Frame(box, bg=CARD)
+        row.pack(fill="x", padx=14, pady=10)
+        tk.Label(row, text=PILL_GLYPH.get(kind, "i"),
+                 bg=CARD, fg=PILL_FG.get(kind, BLUE),
+                 font=(FONT, 12, "bold")).pack(side="left")
+        tk.Label(row, text="  " + text, bg=CARD, fg=FG,
+                 font=(FONT, 10), wraplength=380,
+                 justify="left").pack(side="left", anchor="w")
+        box.bind("<ButtonRelease-1>", lambda e: self.gone())
+        row.bind("<ButtonRelease-1>", lambda e: self.gone())
+        self.update_idletasks()
+        # position bottom-right of the main window
+        ax, ay = app.winfo_rootx(), app.winfo_rooty()
+        aw = app.winfo_width()
+        tw, th = self.winfo_width(), self.winfo_height()
+        x = ax + aw - tw - 24
+        y = ay + app.winfo_height() - th - 24
+        self._x, self._y = max(0, x), max(0, y)
+        self.geometry(f"+{self._x}+{self._y + 40}")
+        self._slide()
+
+    def _slide(self):
+        cy = int(self.geometry().split("+")[-1])
+        if cy > self._y:
+            self.geometry(f"+{self._x}+{max(self._y, cy - 6)}")
+            self.after(12, self._slide)
+        else:
+            self.after(self.LIFE, self.gone)
+
+    def gone(self):
+        try:
+            self.destroy()
+        except tk.TclError:
+            pass
 
 # ---------- dialogs ----------
 class Dialog(tk.Toplevel):
@@ -327,6 +581,10 @@ class Dialog(tk.Toplevel):
         self.grab_set()
         self.geometry(f"{width}x{height}+{app.winfo_x()+40}+{app.winfo_y()+40}")
         self.bind("<Escape>", lambda e: self.cancel())
+        try:
+            self.iconphoto(True, tk.PhotoImage(data=LOGO_B64, format="png"))
+        except Exception:
+            pass
 
     def cancel(self):
         self.result = False
@@ -339,16 +597,17 @@ class Dialog(tk.Toplevel):
 class Confirm(Dialog):
     """'Are you sure?' with explanation. Defaults to No."""
     def __init__(self, app, title, lines, yes="Yes, do it", no="Cancel"):
-        super().__init__(app, title, 520, 120 + 26 * len(lines))
+        super().__init__(app, title, 540, 130 + 26 * len(lines))
         fr = tk.Frame(self, bg=BG); fr.pack(fill="both", expand=True, padx=16, pady=14)
+        tk.Label(fr, text="⚠ " + title, bg=BG, fg=YELLOW,
+                 font=(FONT, 12, "bold")).pack(anchor="w")
         for ln in lines:
             tk.Label(fr, text=ln, bg=BG, fg=FG, justify="left",
-                     wraplength=480, font=("Segoe UI", 10)).pack(anchor="w", pady=2)
-        row = tk.Frame(fr, bg=BG); row.pack(pady=(14, 0))
-        tk.Button(row, text=no, command=self.cancel, width=12,
-                  font=("Segoe UI", 10, "bold")).pack(side="right", padx=(8, 0))
-        tk.Button(row, text=yes, command=lambda: self.finish(True), width=16,
-                  bg=RED, fg="white", font=("Segoe UI", 10, "bold")).pack(side="right")
+                     wraplength=480, font=(FONT, 10)).pack(anchor="w", pady=2)
+        row = tk.Frame(fr, bg=BG); row.pack(pady=(16, 0), anchor="e")
+        RButton(row, no, command=self.cancel, width=130, bg=BG).pack(side="right", padx=(8, 0))
+        RButton(row, yes, command=lambda: self.finish(True), width=150,
+                accent=True, bg=BG).pack(side="right")
 
 class Chooser(Dialog):
     """List picker with ↑/↓ + Enter, Esc cancels, • markers."""
@@ -356,16 +615,20 @@ class Chooser(Dialog):
         super().__init__(app, title, 640, 460)
         self.items = items
         self.sel = marker_idx if marker_idx is not None else 0
-        self.lb = tk.Listbox(self, bg=PANEL, fg=FG, selectbackground=BLUE,
-                             font=("Consolas", 11), highlightthickness=0,
-                             activestyle="none", exportselection=False)
+        tk.Label(self, text=title, bg=BG, fg=FG,
+                 font=(FONT, 12, "bold")).pack(anchor="w", padx=14, pady=(12, 4))
+        self.lb = tk.Listbox(self, bg=PANEL, fg=FG, selectbackground="#2f4a63",
+                             selectforeground="white", font=(MONO, 11),
+                             highlightthickness=1, highlightbackground=BORDER,
+                             activestyle="none", exportselection=False,
+                             borderwidth=0)
         for i, (label, _) in enumerate(items):
             self.lb.insert("end", label)
-        self.lb.pack(fill="both", expand=True, padx=12, pady=(12, 4))
+        self.lb.pack(fill="both", expand=True, padx=12, pady=(4, 4))
         self.lb.select_set(self.sel)
         self.lb.see(self.sel)
         tk.Label(self, text="↑/↓ move   Enter select   Esc cancel",
-                 bg=BG, fg=GREY, font=("Segoe UI", 9)).pack(pady=(0, 8))
+                 bg=BG, fg=DIM, font=(FONT, 9)).pack(pady=(0, 10))
         self.lb.bind("<Return>", lambda e: self._pick())
         self.lb.bind("<Double-Button-1>", lambda e: self._pick())
         self.lb.focus_set()
@@ -393,12 +656,15 @@ class Preview(tk.Toplevel):
         self.img = None
         self._after_id = None
         self._closed = False
+        try:
+            self.iconphoto(True, tk.PhotoImage(data=LOGO_B64, format="png"))
+        except Exception:
+            pass
         top = tk.Frame(self, bg=BG); top.pack(fill="x", padx=12, pady=(10, 4))
-        tk.Label(top, text=title, bg=BG, fg=FG,
-                 font=("Segoe UI", 11, "bold")).pack(side="left")
-        tk.Button(top, text="Close", command=self.close, width=10,
-                  font=("Segoe UI", 10, "bold")).pack(side="right")
-        self.view = tk.Label(self, bg=DARK)
+        tk.Label(top, text="◐ " + title, bg=BG, fg=FG,
+                 font=(FONT, 11, "bold")).pack(side="left")
+        RButton(top, "Close", command=self.close, width=100, bg=BG).pack(side="right")
+        self.view = tk.Label(self, bg="#0c0e12")
         self.view.pack(padx=12, pady=(4, 10))
         self.bind("<Escape>", lambda e: self.close())
         self.protocol("WM_DELETE_WINDOW", self.close)
@@ -444,26 +710,34 @@ class Preview(tk.Toplevel):
 class Disclaimer(Dialog):
     def __init__(self, app):
         paras = TC.disclaimer_paragraphs()
-        super().__init__(app, "Read this first — important", 640, 150 + 30 * len(paras))
+        super().__init__(app, "Read this first — important", 660, 160 + 30 * len(paras))
         fr = tk.Frame(self, bg=BG); fr.pack(fill="both", expand=True, padx=16, pady=12)
+        tk.Label(fr, text="⚠ USE AT YOUR OWN RISK", bg=BG, fg=RED,
+                 font=(FONT, 13, "bold")).pack(anchor="w")
         for p in paras:
             tk.Label(fr, text="• " + p, bg=BG, fg=FG, justify="left",
-                     wraplength=600, font=("Segoe UI", 9)).pack(anchor="w", pady=3)
-        row = tk.Frame(fr, bg=BG); row.pack(pady=(12, 0))
-        tk.Button(row, text="No, quit", command=self.cancel, width=12,
-                  font=("Segoe UI", 10, "bold")).pack(side="right", padx=(8, 0))
-        tk.Button(row, text="Yes, I accept", command=lambda: self.finish(True), width=16,
-                  bg=GREEN, fg="white", font=("Segoe UI", 10, "bold")).pack(side="right")
+                     wraplength=600, font=(FONT, 9)).pack(anchor="w", pady=3)
+        row = tk.Frame(fr, bg=BG); row.pack(pady=(12, 0), anchor="e")
+        RButton(row, "No, quit", command=self.cancel, width=130, bg=BG).pack(side="right", padx=(8, 0))
+        RButton(row, "Yes, I accept", command=lambda: self.finish(True),
+                width=150, accent=True, bg=BG).pack(side="right")
 
 # ---------- main app ----------
 class App(tk.Tk):
     def __init__(self, selftest=False):
         super().__init__()
-        self.title(f"tweakctl GUI  v{VERSION}")
+        self.title(f"tweakctl  v{VERSION}")
         self.configure(bg=BG)
-        self.geometry("960x640")
+        self.geometry("1000x660")
+        self.minsize(760, 480)
+        try:
+            self.iconphoto(True, tk.PhotoImage(data=LOGO_B64, format="png"))
+        except Exception:
+            pass
+        self.ui_locked = False
         self.worker = Worker(self)
         self.playing = None
+        self._busy_after = None
         self._build()
         self.after(100, self.worker.poll)
         if selftest:
@@ -481,50 +755,105 @@ class App(tk.Tk):
 
     # ----- UI construction -----
     def _build(self):
-        top = tk.Frame(self, bg=BG); top.pack(fill="x", padx=10, pady=(8, 0))
-        tk.Label(top, text=f"tweakctl GUI  v{VERSION}", bg=BG, fg=FG,
-                 font=("Segoe UI", 14, "bold")).pack(side="left")
-        self.status = tk.Label(top, text="●", bg=BG, fg=GREY,
-                               font=("Segoe UI", 14))
-        self.status.pack(side="right")
+        # header bar
+        hdr = tk.Frame(self, bg=BG, height=58)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        self.logo_img = tk.PhotoImage(data=LOGO_B64, format="png").subsample(8, 8)
+        tk.Label(hdr, image=self.logo_img, bg=BG).pack(side="left",
+                                                        padx=(12, 8), pady=8)
+        tk.Label(hdr, text="tweakctl", font=(FONT, 16, "bold"), fg=FG,
+                 bg=BG).pack(side="left")
+        tk.Label(hdr, text=f"  v{VERSION}", font=(FONT, 10), fg=DIM,
+                 bg=BG).pack(side="left")
+        self.root_lbl = tk.Label(hdr, text=self._root_text(), font=(FONT, 9),
+                                 fg=DIM, bg=BG)
+        self.root_lbl.pack(side="right", pady=8, padx=(0, 10))
+        self.busy_canvas = tk.Canvas(hdr, width=14, height=14,
+                                     highlightthickness=0, bg=BG)
+        self.busy_canvas.pack(side="right", pady=8)
+        self._draw_busy(0)
 
-        body = tk.Frame(self, bg=BG); body.pack(fill="both", expand=True, padx=10, pady=8)
-        nav = tk.Frame(body, bg=PANEL); nav.pack(side="left", fill="y")
-        self.pages = {}
-        self.navbtns = []
-        for key, label in [("dash", "Dashboard"), ("hib", "Hibernation"),
-                           ("s3", "Sleep (S3)"), ("ply", "Boot splash"),
-                           ("snd", "Sounds"), ("upd", "Updates"),
-                           ("abt", "About")]:
-            b = tk.Button(nav, text=label, width=16, bg=PANEL, fg=FG,
-                          relief="flat", font=("Segoe UI", 10),
-                          command=lambda k=key: self.show(k))
-            b.pack(fill="x", pady=1)
-            self.navbtns.append((key, b))
-        self.content = tk.Frame(body, bg=BG)
-        self.content.pack(side="left", fill="both", expand=True, padx=(8, 0))
+        # body: sidebar + content
+        body = tk.Frame(self, bg=BG)
+        body.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+        self.sidebar = tk.Frame(body, bg=PANEL, width=196)
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False)
+        tk.Label(self.sidebar, text="  TWEAKCTL", font=(FONT, 9, "bold"),
+                 fg=DIM, bg=PANEL).pack(anchor="w", pady=(14, 6))
+        self.navbtns = {}
+        for key, glyph, label in [("dash", "▣", "Dashboard"),
+                                  ("hib", "❄", "Hibernation"),
+                                  ("s3", "☾", "Sleep (S3)"),
+                                  ("ply", "◐", "Boot splash"),
+                                  ("snd", "♪", "Sounds"),
+                                  ("upd", "↑", "Updates"),
+                                  ("abt", "⚙", "About")]:
+            b = NavButton(self.sidebar, glyph, label,
+                          lambda k=key: self.show(k), self)
+            b.pack(fill="x", padx=6, pady=1)
+            self.navbtns[key] = b
 
-        self.logbox = tk.Text(self, height=7, bg=DARK, fg=LIGHT,
-                              font=("Consolas", 9), state="disabled",
-                              relief="flat")
-        self.logbox.pack(fill="x", padx=10, pady=(0, 8))
+        self.content = ScrollFrame(body, bg=BG)
+        self.content.pack(side="left", fill="both", expand=True, padx=(10, 0))
+
+        # activity log
+        logwrap = tk.Frame(self, bg=BG)
+        logwrap.pack(fill="x", padx=12, pady=(0, 8))
+        tk.Label(logwrap, text="  ACTIVITY", font=(FONT, 8, "bold"),
+                 fg=DIM, bg=BG).pack(anchor="w")
+        self.logbox = tk.Text(logwrap, height=6, bg="#101218", fg=DIM,
+                              font=(MONO, 9), state="disabled", relief="flat",
+                              highlightthickness=1, highlightbackground=BORDER,
+                              insertbackground=FG, borderwidth=0)
+        self.logbox.pack(fill="x")
         self.logbox.tag_config("ok", foreground=GREEN)
         self.logbox.tag_config("fail", foreground=RED)
         self.logbox.tag_config("warn", foreground=YELLOW)
-        self.logbox.tag_config("info", foreground=GREY)
+        self.logbox.tag_config("info", foreground=DIM)
+
+    def _root_text(self):
+        return "root" if os.geteuid() == 0 else "user · sudo"
+
+    def _draw_busy(self, step):
+        self.busy_canvas.delete("all")
+        busy = self.worker.busy
+        cols = ["#3a4356", "#566178", "#7b8699", "#566178"] if busy else ["#3a4356"]
+        col = cols[step % len(cols)]
+        self.busy_canvas.create_oval(1, 1, 13, 13, fill=col, outline="")
+        if busy:
+            self._busy_after = self.after(140, lambda: self._draw_busy(step + 1))
+        else:
+            self._busy_after = None
+
+    def set_busy(self, on):
+        if on:
+            if self._busy_after is None:
+                self._draw_busy(0)
+        else:
+            if self._busy_after is not None:
+                self.after_cancel(self._busy_after)
+                self._busy_after = None
+            self._draw_busy(0)
 
     def set_buttons_state(self, st):
-        for _, b in self.navbtns:
-            b.config(state=st)
+        self.ui_locked = (st != "normal")
 
     def show(self, key):
-        for k, b in self.navbtns:
-            b.config(bg=BLUE if k == key else PANEL)
-        for w in self.content.winfo_children():
+        for k, b in self.navbtns.items():
+            b.active = (k == key)
+            b.draw()
+        for w in self.content.inner.winfo_children():
             w.destroy()
+        self.content.canvas.yview_moveto(0)
         page_fn = getattr(self, f"page_{key}")
-        page_fn(self.content)
+        page_fn(self.content.inner)
         self.current = key
+
+    def toast(self, kind, text):
+        """Thread-safe toast: always created on the main thread."""
+        self.after(0, lambda: Toast(self, kind, text))
 
     def log(self, text):
         self.logbox.config(state="normal")
@@ -537,36 +866,57 @@ class App(tk.Tk):
         self.logbox.see("end")
         self.logbox.config(state="disabled")
 
-    # ----- shared status helpers -----
-    def status_line(self, parent, ok, okmsg, failmsg):
-        color, msg = (GREEN, okmsg) if ok else (RED, failmsg)
-        tk.Label(parent, text="●", bg=BG, fg=color,
-                 font=("Segoe UI", 16, "bold")).pack(anchor="w")
-        tk.Label(parent, text=msg, bg=BG, fg=color, font=("Segoe UI", 12, "bold"),
-                 wraplength=700, justify="left").pack(anchor="w", pady=(0, 8))
+    # ----- shared page helpers -----
+    def card(self, parent, title, glyph=None):
+        """Card with a title row; returns the inner frame."""
+        c = Card(parent)
+        c.pack(fill="x", pady=6)
+        inner = tk.Frame(c, bg=CARD)
+        inner.pack(fill="x", padx=16, pady=14)
+        if title:
+            row = tk.Frame(inner, bg=CARD)
+            row.pack(fill="x", anchor="n")
+            if glyph:
+                tk.Label(row, text=glyph, font=(FONT, 13), fg=ACCENT,
+                         bg=CARD).pack(side="left")
+            tk.Label(row, text="  " + title, font=(FONT, 12, "bold"),
+                     fg=FG, bg=CARD).pack(side="left")
+        return inner
+
+    def status_row(self, parent, kind, pill, msg):
+        """Status pill + bold coloured message."""
+        row = tk.Frame(parent, bg=CARD)
+        row.pack(fill="x", pady=(6, 2), anchor="w")
+        Pill(row, kind, pill).pack(side="left", anchor="w")
+        tk.Label(row, text="  " + msg, font=(FONT, 11, "bold"),
+                 fg=PILL_FG[kind], bg=CARD, wraplength=620,
+                 justify="left").pack(side="left", anchor="w")
 
     def bullet(self, parent, level, msg):
         colors = {"ok": GREEN, "fail": RED, "warn": YELLOW, "info": FG}
-        tk.Label(parent, text="• " + msg, bg=BG, fg=colors.get(level, FG),
-                 font=("Segoe UI", 10), wraplength=700,
-                 justify="left").pack(anchor="w")
+        tk.Label(parent, text="•  " + msg, bg=CARD,
+                 fg=colors.get(level, FG), font=(FONT, 10),
+                 wraplength=640, justify="left").pack(anchor="w", pady=1)
 
-    def button_row(self, parent, buttons):
-        row = tk.Frame(parent, bg=BG)
-        row.pack(fill="x", pady=(10, 0))
+    def action_row(self, parent, buttons):
+        row = tk.Frame(parent, bg=CARD)
+        row.pack(fill="x", pady=(14, 0))
         for btn in buttons:
             label, cmd = btn[0], btn[1]
             kw = btn[2] if len(btn) > 2 else {}
-            tk.Button(row, text=label, command=cmd, width=20, height=1,
-                      font=("Segoe UI", 10, "bold"), **kw).pack(side="left", padx=(0, 8))
+            RButton(row, label, command=cmd,
+                    width=kw.pop("width", 180), bg=CARD, **kw).pack(side="left", padx=(0, 8))
         return row
 
     def windows_banner(self, parent):
         if TC.windows_present():
-            tk.Label(parent, text="⚠ Windows dual-boot detected — turn OFF 'Fast Startup' "
-                                  "in Windows before testing hibernation.",
-                     bg=BG, fg=YELLOW, font=("Segoe UI", 10, "bold"),
-                     wraplength=700, justify="left").pack(anchor="w", pady=(4, 0))
+            strip = tk.Frame(parent, bg="#2e2a12")
+            strip.pack(fill="x", pady=(12, 0))
+            tk.Label(strip, text="  ⚠  Windows dual-boot detected — turn OFF "
+                                 "'Fast Startup' in Windows before testing "
+                                 "hibernation.  ",
+                     bg="#2e2a12", fg=YELLOW, font=(FONT, 9, "bold"),
+                     wraplength=640, justify="left").pack(anchor="w", pady=7)
 
     # ----- pages -----
     def page_dash(self, parent):
@@ -577,72 +927,91 @@ class App(tk.Tk):
         snd = TC.sound_choices()
         cur_snd = TC.current_boot_sound()
 
-        self.status_line(parent, ready,
-                         "HIBERNATION IS READY" if ready else "HIBERNATION IS NOT SET UP",
-                         "Hibernation: not ready yet")
-        self.button_row(parent, [("Set up hibernation", lambda: self.act_hib()),
-                                  ("Refresh", self.refresh)])
-        self.windows_banner(parent)
-        tk.Frame(parent, bg=PANEL, height=1).pack(fill="x", pady=8)
+        inner = self.card(parent, "Hibernation", "❄")
+        self.status_row(inner, "ok" if ready else "fail",
+                        "READY" if ready else "NOT SET UP",
+                        "Hibernation is ready — schedule with: systemctl hibernate"
+                        if ready else "HIBERNATION IS NOT SUPPORTED / NOT SET UP")
+        self.action_row(inner, [("Set up hibernation", lambda: self.act_hib(),
+                                 {"accent": True}),
+                                ("Refresh", self.refresh, {"width": 120})])
+        self.windows_banner(inner)
 
-        self.status_line(parent, active,
-                         "S3 DEEP SLEEP IS ACTIVE" if active else "S3 deep sleep is NOT active",
-                         "S3 deep sleep: not active")
-        self.button_row(parent, [("Use deep sleep (S3)", lambda: self.act_s3("deep")),
-                                  ("Use s2idle", lambda: self.act_s3("s2idle"))])
-        tk.Frame(parent, bg=PANEL, height=1).pack(fill="x", pady=8)
+        inner = self.card(parent, "Sleep (S3 deep)", "☾")
+        self.status_row(inner, "ok" if active else "warn",
+                        "ACTIVE" if active else "NOT ACTIVE",
+                        "S3 DEEP SLEEP IS ACTIVE" if active
+                        else "S3 deep sleep is NOT active")
+        self.action_row(inner, [("Use deep sleep (S3)", lambda: self.act_s3("deep"),
+                                 {"accent": True}),
+                                ("Use s2idle", lambda: self.act_s3("s2idle"),
+                                 {"width": 140})])
 
-        self.status_line(parent, bool(ply),
-                         f"Plymouth installed — theme: {cur_ply or 'default'}" if ply
-                         else "Plymouth is NOT installed",
-                         "Plymouth: not installed")
-        self.button_row(parent, [("Change boot splash", lambda: self.show("ply")),
-                                  ("Preview animation", lambda: self.act_preview(cur_ply))])
-        tk.Frame(parent, bg=PANEL, height=1).pack(fill="x", pady=8)
+        inner = self.card(parent, "Boot splash (Plymouth)", "◐")
+        self.status_row(inner, "ok" if ply else "fail",
+                        f"THEME: {cur_ply or 'DEFAULT'}".upper() if ply else "NOT INSTALLED",
+                        f"Current boot splash theme: {cur_ply or 'default'}" if ply
+                        else "Plymouth is NOT installed")
+        if ply:
+            self.action_row(inner, [("Change boot splash", lambda: self.show("ply"),
+                                     {"accent": True}),
+                                    ("Preview animation", lambda: self.act_preview(cur_ply),
+                                     {"width": 160})])
 
-        self.status_line(parent, bool(snd),
-                         f"{len(snd)} sound(s) found" + (f" — current: {os.path.basename(cur_snd)}" if cur_snd else "")
-                         if snd else "No sounds found",
-                         "Sounds: none found")
-        self.button_row(parent, [("Sounds & startup sound", lambda: self.show("snd"))])
+        inner = self.card(parent, "Sounds (ctOS)", "♪")
+        self.status_row(inner, "ok" if snd else "warn",
+                        f"{len(snd)} SOUND(S)".upper() if snd else "NONE FOUND",
+                        (f"{len(snd)} sounds found — current: {os.path.basename(cur_snd)}"
+                         if cur_snd else f"{len(snd)} sounds found") if snd
+                        else "No ctOS sounds found")
+        if snd:
+            self.action_row(inner, [("Sounds & startup sound", lambda: self.show("snd"),
+                                     {"accent": True})])
 
     def page_hib(self, parent):
         ready, items = TC.hibernation_state()
-        self.status_line(parent, ready,
-                         "HIBERNATION IS ALREADY IMPLEMENTED" if ready
-                         else "HIBERNATION IS NOT SUPPORTED / NOT SET UP",
-                         "Hibernation is ready" if ready else "Hibernation is not ready")
+        inner = self.card(parent, "Hibernation", "❄")
+        self.status_row(inner, "ok" if ready else "fail",
+                        "READY" if ready else "NOT SET UP",
+                        "HIBERNATION IS ALREADY IMPLEMENTED" if ready
+                        else "HIBERNATION IS NOT SUPPORTED / NOT SET UP")
         for level, msg in items:
-            self.bullet(parent, level, msg)
-        self.windows_banner(parent)
+            self.bullet(inner, level, msg)
+        self.windows_banner(inner)
         if ready:
-            self.button_row(parent, [("Re-apply anyway", lambda: self.act_hib(force=True))])
+            self.action_row(inner, [("Re-apply anyway", lambda: self.act_hib(force=True))])
         else:
-            self.button_row(parent, [("Set up hibernation", lambda: self.act_hib())])
+            self.action_row(inner, [("Set up hibernation", lambda: self.act_hib(),
+                                     {"accent": True})])
 
     def page_s3(self, parent):
         deep, active, persists = TC.s3_state()
         mode = TC.s3_active_mode()
-        self.status_line(parent, active,
-                         "S3 DEEP SLEEP IS ACTIVE" if active else "S3 DEEP SLEEP IS NOT ACTIVE",
-                         f"S3 deep sleep is active (current mode: {mode})" if active
-                         else f"S3 deep sleep is not active (current mode: {mode})")
-        self.bullet(parent, "ok" if deep else "fail",
+        inner = self.card(parent, "Sleep (S3 deep)", "☾")
+        self.status_row(inner, "ok" if active else "warn",
+                        "ACTIVE" if active else "NOT ACTIVE",
+                        f"S3 DEEP SLEEP IS ACTIVE (mode: {mode})" if active
+                        else f"S3 DEEP SLEEP IS NOT ACTIVE (mode: {mode})")
+        self.bullet(inner, "ok" if deep else "fail",
                     "Hardware supports S3 (deep) sleep." if deep
                     else "Hardware does NOT support S3 (deep) sleep.")
-        self.bullet(parent, "ok" if persists else "warn",
+        self.bullet(inner, "ok" if persists else "warn",
                     "mem_sleep_default=deep persists across reboots." if persists
                     else "mem_sleep_default=deep is NOT on the kernel cmdline.")
-        self.button_row(parent, [("Use deep sleep (S3)", lambda: self.act_s3("deep")),
-                                  ("Use s2idle (shallow)", lambda: self.act_s3("s2idle"))])
+        self.action_row(inner, [("Use deep sleep (S3)", lambda: self.act_s3("deep"),
+                                 {"accent": True}),
+                                ("Use s2idle (shallow)", lambda: self.act_s3("s2idle"),
+                                 {"width": 190})])
 
     def page_ply(self, parent):
         cur = TC.current_plymouth_theme()
-        self.status_line(parent, True, f"Current boot splash theme: {cur or 'default'}",
-                         "Plymouth is not installed")
+        inner = self.card(parent, "Boot splash (Plymouth)", "◐")
+        self.status_row(inner, "ok",
+                        f"THEME: {(cur or 'default').upper()}",
+                        f"Current boot splash theme: {cur or 'default'}")
         themes = TC.installed_plymouth_themes()
         if not themes:
-            self.bullet(parent, "fail", "No Plymouth themes installed.")
+            self.bullet(inner, "fail", "No Plymouth themes installed.")
             return
         idx = themes.index(cur) if cur in themes else 0
         def choose():
@@ -651,20 +1020,22 @@ class App(tk.Tk):
             self.wait_window(c)
             if c.result:
                 self.act_apply(c.result)
-        self.button_row(parent, [("Change theme", choose),
-                                  ("Preview current", lambda: self.act_preview(cur))])
+        self.action_row(inner, [("Change theme", choose, {"accent": True}),
+                                ("Preview current", lambda: self.act_preview(cur),
+                                 {"width": 170})])
 
     def page_snd(self, parent):
         cur = TC.current_boot_sound()
         choices = TC.sound_choices()
+        inner = self.card(parent, "Sounds (ctOS)", "♪")
         if not choices:
-            self.bullet(parent, "fail", "No sounds found. Install tweakctl sounds first.")
+            self.bullet(inner, "fail", "No sounds found. Install tweakctl sounds first.")
             return
         idx = next((i for i, (_, p) in enumerate(choices) if p == cur), 0)
-        self.status_line(parent, True,
-                         f"Startup sound: {os.path.basename(cur)}" if cur
-                         else "No startup sound set",
-                         "Sounds")
+        self.status_row(inner, "ok" if cur else "warn",
+                        "SET" if cur else "NOT SET",
+                        f"Startup sound: {os.path.basename(cur)}" if cur
+                        else "No startup sound set")
         def choose():
             c = Chooser(self, "Select a sound",
                         [(f"{l}  • current" if p == cur else l, p)
@@ -679,38 +1050,51 @@ class App(tk.Tk):
             self.wait_window(c)
             if c.result:
                 self.act_sound(c.result)
-        self.button_row(parent, [("Play a sound", choose),
-                                  ("Set startup sound", choose_set)])
+        self.action_row(inner, [("Play a sound", choose, {"accent": True}),
+                                ("Set startup sound", choose_set, {"width": 180})])
         if self.playing:
-            self.button_row(parent, [("■ Stop playback", self.stop_sound)])
+            self.action_row(inner, [("■ Stop playback", self.stop_sound, {"width": 160})])
 
     def page_upd(self, parent):
-        self.status_line(parent, True, f"tweakctl version {TC.VERSION}", "Updates")
-        self.button_row(parent, [("Check for updates", self.act_update)])
-        self._upd_result = tk.Label(parent, text="", bg=BG, fg=FG,
-                                    font=("Segoe UI", 10), wraplength=700,
+        inner = self.card(parent, "Updates", "↑")
+        self.status_row(inner, "ok", f"v{TC.VERSION}".upper(),
+                        f"tweakctl version {TC.VERSION} installed")
+        self.action_row(inner, [("Check for updates", self.act_update, {"accent": True})])
+        self._upd_result = tk.Label(inner, text="", bg=CARD, fg=FG,
+                                    font=(FONT, 10), wraplength=640,
                                     justify="left")
-        self._upd_result.pack(anchor="w", pady=8)
+        self._upd_result.pack(anchor="w", pady=(10, 0))
 
     def page_abt(self, parent):
-        tk.Label(parent, text=f"tweakctl GUI  v{VERSION}", bg=BG, fg=FG,
-                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
-        tk.Label(parent, text=f"CLI version: {TC.VERSION}", bg=BG, fg=GREY,
-                 font=("Segoe UI", 10)).pack(anchor="w", pady=(2, 8))
-        tk.Label(parent, text="Set up hibernation, S3 deep sleep, Plymouth boot splash "
-                              "and ctOS sounds on Arch, Ubuntu/Debian and Fedora/RHEL.",
-                 bg=BG, fg=FG, font=("Segoe UI", 10), wraplength=700,
+        inner = self.card(parent, "About tweakctl", "▣")
+        tk.Label(inner, text="tweakctl", font=(FONT, 18, "bold"), fg=FG,
+                 bg=CARD).pack(anchor="w")
+        tk.Label(inner, text=f"GUI v{VERSION}  ·  CLI v{TC.VERSION}",
+                 font=(FONT, 10), fg=DIM, bg=CARD).pack(anchor="w", pady=(2, 8))
+        tk.Label(inner, text="Set up hibernation, S3 deep sleep, Plymouth "
+                             "boot splash and ctOS sounds on Arch, "
+                             "Ubuntu/Debian and Fedora/RHEL — one tool, "
+                             "every distro.",
+                 bg=CARD, fg=FG, font=(FONT, 10), wraplength=640,
                  justify="left").pack(anchor="w")
-        tk.Label(parent, text=f"https://github.com/{GH_REPO}", bg=BG, fg=BLUE,
-                 font=("Segoe UI", 10, "underline"), cursor="hand2").pack(anchor="w", pady=(6, 0))
+        link = tk.Label(inner, text=f"https://github.com/{GH_REPO}", bg=CARD,
+                        fg=BLUE, font=(FONT, 10, "underline"), cursor="hand2")
+        link.pack(anchor="w", pady=(8, 0))
+        link.bind("<ButtonRelease-1>",
+                  lambda e: subprocess.Popen(["xdg-open", f"https://github.com/{GH_REPO}"],
+                                           stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL))
         acc = TC.disclaimer_status()
-        tk.Label(parent, text=f"Disclaimer: {'accepted ' + acc if acc else 'NOT accepted'}",
-                 bg=BG, fg=(GREEN if acc else YELLOW),
-                 font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(10, 0))
-        self.button_row(parent, [("Read the disclaimer", self.act_disclaimer),
-                                  ("Open repo in browser",
-                                   lambda: subprocess.Popen(["xdg-open", f"https://github.com/{GH_REPO}"],
-                                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))])
+        tk.Label(inner, text=f"Disclaimer: {'accepted ' + acc if acc else 'NOT accepted'}",
+                 bg=CARD, fg=(GREEN if acc else YELLOW),
+                 font=(FONT, 10, "bold")).pack(anchor="w", pady=(12, 0))
+        self.action_row(inner, [("Read the disclaimer", self.act_disclaimer),
+                                ("Open repo in browser", self._open_repo,
+                                 {"width": 190})])
+
+    def _open_repo(self):
+        subprocess.Popen(["xdg-open", f"https://github.com/{GH_REPO}"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # ----- actions -----
     def refresh(self):
@@ -729,6 +1113,7 @@ class App(tk.Tk):
             self.log(out)
             if rc == 0:
                 self.log("[OK] Done — reboot, then test with: systemctl hibernate")
+                self.toast("ok", "Hibernation set up — reboot, then run systemctl hibernate")
         self.worker.start(go)
 
     def q_confirm(self, lines):
@@ -754,6 +1139,8 @@ class App(tk.Tk):
             self.log(f">> Setting suspend mode to {mode} (needs root)...")
             rc, out = run_cli(["s3", "set-deep" if mode == "deep" else "set-s2idle"])
             self.log(out)
+            if rc == 0:
+                self.toast("ok", f"Suspend mode set to {mode} — reboot to apply")
         self.worker.start(go)
 
     def act_apply(self, theme):
@@ -761,6 +1148,8 @@ class App(tk.Tk):
             self.log(f">> Setting boot splash theme to '{theme}' (needs root)...")
             rc, out = run_cli(["plymouth", "apply", "--theme", theme])
             self.log(out)
+            if rc == 0:
+                self.toast("ok", f"Boot splash theme set to '{theme}' — reboot to see it")
         self.worker.start(go)
 
     def act_preview(self, theme):
@@ -818,6 +1207,8 @@ class App(tk.Tk):
             self.log(f">> Setting startup sound to {os.path.basename(path)}...")
             rc, out = run_cli(["sound", "apply", "--name", path], elevated=False)
             self.log(out)
+            if rc == 0:
+                self.toast("ok", f"Startup sound set to {os.path.basename(path)}")
         self.worker.start(go)
 
     def act_update(self):
@@ -826,7 +1217,7 @@ class App(tk.Tk):
             rc, out = run_cli(["update-check"], elevated=False, timeout=30)
             self.log(out)
             if hasattr(self, "_upd_result"):
-                self._upd_result.config(text=strip(out))
+                self.after(0, lambda: self._upd_result.config(text=strip(out)))
         self.worker.start(go)
 
     def act_disclaimer(self):
@@ -844,7 +1235,6 @@ class App(tk.Tk):
 
     # ----- self test -----
     def selftest(self):
-        pass
         checks = []
         def ck(name, cond):
             checks.append((name, bool(cond)))
@@ -857,11 +1247,24 @@ class App(tk.Tk):
             ck("sound_choices returns list", isinstance(TC.sound_choices(), list))
             ck("current_plymouth_theme", isinstance(TC.current_plymouth_theme(), (str, type(None))))
             ck("windows_present", TC.windows_present() in (True, False))
+            # logo loads from the embedded base64
+            ck("embedded logo loads", self.logo_img.width() == 32)
             # navigation
             for key in ["dash", "hib", "s3", "ply", "snd", "upd", "abt"]:
                 self.show(key)
                 self.update()
-                ck(f"page {key} renders", len(self.content.winfo_children()) > 0)
+                ck(f"page {key} renders", len(self.content.inner.winfo_children()) > 0)
+            # widgets render
+            w = tk.Frame(self.content.inner, bg=BG)
+            w.pack()
+            rb = RButton(w, "test", command=None, bg=BG)
+            rb.pack()
+            self.update()
+            ck("RButton renders", rb.winfo_width() > 0)
+            pl = Pill(w, "ok", "TEST")
+            pl.pack()
+            self.update()
+            ck("Pill renders", pl.winfo_width() > 0)
             # chooser dialog
             self.show("snd")
             c = Chooser(self, "t", [("a", "x"), ("b  • current", "y")], 1)
@@ -879,6 +1282,11 @@ class App(tk.Tk):
             self.update()
             ck("disclaimer builds", d.result is None)
             d.cancel()
+            # toast shows and dismisses
+            t = Toast(self, "ok", "selftest toast")
+            self.update()
+            ck("toast shows", t.winfo_exists())
+            t.gone()
             # log with ANSI strip
             self.log("\x1b[92m[OK]\x1b[0m green line")
             self.update()
@@ -896,7 +1304,6 @@ class App(tk.Tk):
                 ppm2, _ = next(it)
                 ck("gif decodes frame 2", ppm2.startswith(b"P6\n"))
             else:
-                # no cached gif: at least verify the decoder rejects garbage
                 try:
                     list(gif_frames("/etc/hostname"))
                     ck("gif rejects non-gif", False)

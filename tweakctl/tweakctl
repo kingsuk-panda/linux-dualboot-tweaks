@@ -5,7 +5,7 @@ Distro-agnostic: Arch, Ubuntu/Debian, Fedora/RHEL.
 """
 import argparse, os, re, shutil, subprocess, sys, time, urllib.request, json
 
-VERSION = "0.7.4"
+VERSION = "0.8.0"
 GH_REPO = "kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 RAW = f"https://raw.githubusercontent.com/{GH_REPO}/main/{{}}"
 
@@ -619,9 +619,10 @@ def tui():
 
     # label / action / root? / already(val)? -> (title, why[]) / suspend?
     MENU = [
-        dict(label="Hibernate  > Check if it works",
+        dict(header="HIBERNATION", glyph="❄"),
+        dict(label="Check if it works",
              action=lambda: hibernate_check()),
-        dict(label="Hibernate  > Set it up (enable)",
+        dict(label="Set it up (enable)",
              action=lambda: hibernate_enable(), root=True,
              already=lambda v: hibernation_ready(),
              title="HIBERNATION IS ALREADY ENABLED",
@@ -630,9 +631,10 @@ def tui():
                   "(your other kernel params are kept), rebuilds the initramfs "
                   "(takes 1-2 min) and regenerates grub.cfg.",
                   "Only continue if you changed your swap or hibernation stopped working."]),
-        dict(label="S3 sleep   > Check sleep mode",
+        dict(header="S3 SLEEP", glyph="☾"),
+        dict(label="Check sleep mode",
              action=lambda: s3_check()),
-        dict(label="S3 sleep   > Deep sleep (S3)",
+        dict(label="Deep sleep (S3)",
              action=lambda: s3_set("deep"), root=True,
              already=lambda v: s3_state()[1],
              title="S3 DEEP SLEEP IS ALREADY ACTIVE",
@@ -641,7 +643,7 @@ def tui():
                   "Re-running rewrites the GRUB cmdline and regenerates grub.cfg — "
                   "you will see no visible change.",
                   "Cancel if you only wanted to check the status."]),
-        dict(label="S3 sleep   > Shallow (s2idle)",
+        dict(label="Shallow (s2idle)",
              action=lambda: s3_set("s2idle"), root=True,
              already=lambda v: s3_active_mode() == "s2idle",
              title="S2IDLE IS ALREADY THE ACTIVE MODE",
@@ -650,9 +652,10 @@ def tui():
                   "Setting it again rewrites the GRUB cmdline and regenerates "
                   "grub.cfg with no visible change.",
                   "Tip: 'S3 sleep > Deep sleep (S3)' uses less power while suspended."]),
-        dict(label="Plymouth   > Check boot theme",
+        dict(header="BOOT SPLASH", glyph="◐"),
+        dict(label="Check boot theme",
              action=lambda: plymouth_check()),
-        dict(label="Plymouth   > Change boot theme",
+        dict(label="Change boot theme",
              action="CHOOSE_THEME", root=True,
              already=lambda v: v is not None and v == current_plymouth_theme(),
              title="THAT THEME IS ALREADY ACTIVE",
@@ -660,13 +663,14 @@ def tui():
                   "Re-running rebuilds the initramfs (1-2 min) and changes "
                   "nothing visually.",
                   "Cancel if you meant to choose a different theme."]),
-        dict(label="Plymouth   > Preview animation",
+        dict(label="Preview animation",
              action="CHOOSE_THEME_PREVIEW", root=True, suspend=True),
-        dict(label="Sound      > List sounds",
+        dict(header="SOUNDS", glyph="♪"),
+        dict(label="List sounds",
              action=lambda: sound_list()),
-        dict(label="Sound      > Preview a sound",
+        dict(label="Preview a sound",
              action="CHOOSE_SOUND_PREVIEW"),
-        dict(label="Sound      > Set startup sound",
+        dict(label="Set startup sound",
              action="CHOOSE_SOUND_APPLY",
              already=lambda v: os.path.exists(UNIT),
              title="A STARTUP SOUND IS ALREADY CONFIGURED",
@@ -674,8 +678,9 @@ def tui():
                   "a sound at every login.",
                   "Continuing replaces the current sound with your selection — "
                   "nothing else changes.",
-                  "Cancel and run 'Sound > List sounds' first if you want to browse."]),
-        dict(label="Update     > Check for updates",
+                  "Cancel and run 'List sounds' first if you want to browse."]),
+        dict(header="SYSTEM", glyph="⚙"),
+        dict(label="Check for updates",
              action=lambda: update_check()),
         dict(label="About & disclaimer",
              action="ABOUT"),
@@ -706,6 +711,56 @@ def tui():
         if cur:
             out.append(cur)
         return out
+
+    def logo_splash(stdscr):
+        """Animated startup logo (~0.9s) — any key skips it."""
+        import time
+        h, w = stdscr.getmaxyx()
+        if h < 10 or w < 44:
+            return
+        green = (curses.color_pair(1) | curses.A_BOLD) if curses.has_colors() else curses.A_BOLD
+        bold = curses.A_BOLD
+        dim = curses.A_DIM
+        sliders = [
+            "  ━━●━━━━━━━━━━━━━━━━━━━━━━━━━━━",
+            "  ━━━━━━●━━━━━━━━━━━━━━━━━━━━━━━",
+            "  ━━━━━━━━━●━━━━━━━━━━━━━━━━━━━━",
+        ]
+        word = "tweakctl"
+        tag = f" v{ver_short}   hibernate · S3 sleep · boot splash · ctOS sounds"
+        width = max(len(sliders[0]), len(tag))
+        cx = max(0, (w - width) // 2)
+        cy = max(1, h // 2 - 3)
+
+        def draw(n_sliders, n_letters, show_tag):
+            stdscr.erase()
+            for i in range(3):
+                if i < n_sliders:
+                    put(stdscr, cy + i, cx, sliders[i], green)
+            put(stdscr, cy + 4, cx + 2, word[:n_letters], bold)
+            if show_tag:
+                put(stdscr, cy + 6, cx, tag, dim)
+            stdscr.refresh()
+
+        # reveal plan: sliders, then the wordmark types on, then the tagline
+        steps = [(i + 1, 0, False) for i in range(3)]
+        steps += [(3, i + 1, False) for i in range(len(word))]
+        steps.append((3, len(word), True))
+        stdscr.erase()
+        stdscr.timeout(0)
+        try:
+            for n_s, n_l, tag_on in steps:
+                draw(n_s, n_l, tag_on)
+                time.sleep(0.07 if n_l == 0 else (0.03 if not tag_on else 0.1))
+                if stdscr.getch() != -1:
+                    break
+            draw(3, len(word), True)
+            stdscr.refresh()
+            time.sleep(0.15)
+            if stdscr.getch() == -1:
+                time.sleep(0.2)
+        finally:
+            stdscr.timeout(-1)
 
     def confirm_screen(stdscr, title, bullets, question="Are you sure you want to continue?"):
         """Modal 'already enabled' dialog. Returns True only for an explicit y/Y."""
@@ -970,7 +1025,7 @@ def tui():
         }.get(lv, 0)
 
     def loop(stdscr):
-        nonlocal sel, offset
+        nonlocal offset
         if curses.has_colors():
             curses.start_color()
             curses.use_default_colors()
@@ -984,6 +1039,7 @@ def tui():
             curses.set_escdelay(50)      # Esc must cancel/quit instantly (ncurses: 1000ms)
         except (AttributeError, curses.error):
             pass
+        logo_splash(stdscr)
         if not disclaimer_accepted():
             if not disclaimer_screen(stdscr):        # 'n'/Esc/q — leave untouched
                 return
@@ -1003,15 +1059,38 @@ def tui():
                     "",
                 ], pane_w)
 
-            put(stdscr, 0, 0, f" tweakctl v{ver_short} · {did} ", curses.A_REVERSE)
+            put(stdscr, 0, 0, f" ━● tweakctl v{ver_short} · {did} ",
+                curses.A_REVERSE | curses.A_BOLD)
             put(stdscr, 0, out_x, " Output ", curses.A_REVERSE)
             put(stdscr, 1, out_x, "─" * max(1, w - out_x - 1), curses.A_DIM)
 
+            def move(delta):
+                """Advance sel over selectable rows only (skip headers)."""
+                nonlocal sel
+                for _ in range(len(MENU)):
+                    sel = (sel + delta) % len(MENU)
+                    if not MENU[sel].get("header"):
+                        return
+
+            def go_first():
+                nonlocal sel
+                sel = next(i for i, e in enumerate(MENU) if not e.get("header"))
+
+            def go_last():
+                nonlocal sel
+                sel = max(i for i, e in enumerate(MENU) if not e.get("header"))
+
+            hdr_attr = (curses.color_pair(4) | curses.A_BOLD
+                        ) if curses.has_colors() else curses.A_BOLD
             for i, entry in enumerate(MENU):
                 if i + 2 >= h - 1:
                     break
-                if i == sel:
-                    put(stdscr, i + 2, 0, f"> {entry['label']}", curses.A_REVERSE | curses.A_BOLD)
+                if entry.get("header"):
+                    put(stdscr, i + 2, 0,
+                        f"  {entry['glyph']}  {entry['header']}", hdr_attr)
+                elif i == sel:
+                    put(stdscr, i + 2, 0, f"▶ {entry['label']}",
+                        curses.A_REVERSE | curses.A_BOLD)
                 else:
                     dim = curses.A_DIM if entry["action"] is None else 0
                     put(stdscr, i + 2, 0, f"  {entry['label']}", dim)
@@ -1025,7 +1104,7 @@ def tui():
             for j, (line, lv) in enumerate(output[start:end]):
                 put(stdscr, j + 2, out_x, line, level_attr(lv))
 
-            put(stdscr, h - 1, 0, " ↑/↓ j/k Enter · PgUp/PgDn scroll · q quit ",
+            put(stdscr, h - 1, 0, " ↑/↓ j/k · Enter run · PgUp/PgDn scroll · q/Esc quit ",
                 curses.A_REVERSE)
             if offset:
                 put(stdscr, h - 1, max(0, w - 14), f" {offset}↑ ", curses.A_REVERSE)
@@ -1035,13 +1114,13 @@ def tui():
             if k in (ord("q"), ord("Q"), 27):
                 break
             elif k in (curses.KEY_UP, ord("k")):
-                sel = (sel - 1) % len(MENU)
+                move(-1)
             elif k in (curses.KEY_DOWN, ord("j")):
-                sel = (sel + 1) % len(MENU)
+                move(1)
             elif k == curses.KEY_HOME:
-                sel = 0
+                go_first()
             elif k == curses.KEY_END:
-                sel = len(MENU) - 1
+                go_last()
             elif k == curses.KEY_PPAGE:
                 offset = min(len(output) - 1, offset + body)
             elif k == curses.KEY_NPAGE:
@@ -1139,7 +1218,8 @@ def tui():
                     cleaned = ANSI.sub("", buf.getvalue()) or "(no output)"
                     output = fit(cleaned.splitlines(), pane_w)
 
-    sel, offset = 0, 0
+    sel = next(i for i, e in enumerate(MENU) if not e.get("header"))
+    offset = 0
     curses.wrapper(loop)
 
 def main():
@@ -1205,7 +1285,10 @@ Startup in Windows first. Full text:  tweakctl disclaimer"""
                 break
         if not gui:
             die("tweakctl-gui not found next to tweakctl — reinstall.")
-        _sp.call([gui])
+        if os.access(gui, os.X_OK):
+            _sp.call([gui])
+        else:                       # e.g. copied without the exec bit
+            _sp.call([sys.executable, gui])
         return
     if a.command == "hibernate":
         hibernate_check() if a.action=="check" else hibernate_enable()

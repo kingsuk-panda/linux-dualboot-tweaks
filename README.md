@@ -5,10 +5,11 @@
 ![Desktop: KDE | GNOME | XFCE](https://img.shields.io/badge/Desktop-KDE%20%7C%20GNOME%20%7C%20XFCE-green)
 ![Windows 11 Dual Boot](https://img.shields.io/badge/Windows_11-Dual%20Boot-lightgrey)
 ![Hibernate Working](https://img.shields.io/badge/Hibernate-Working-brightgreen)
+![Release](https://img.shields.io/github/v/release/kingsuk-panda/linux-hibernate-dual-boot-tweaks?label=release&sort=semver)
 
 A practical, tested guide to **hibernating a Linux PC/laptop**, enabling **S3 deep sleep**, adding **Hibernate to the power menu** (KDE, GNOME, XFCE), fixing *"hibernate is not working / not resuming / session lost"*, plus custom ctOS boot/shutdown sounds, Plymouth boot themes, Oh My Zsh, and GRUB dual-boot with Windows 11. Covers **Arch Linux, Ubuntu, and Fedora**.
 
-## How to reproduce on your machine
+## Install & use
 
 Each feature folder contains its own `README.md`, the actual config/script/theme files, and a `setup.sh` script that installs them (Arch; check each README for Ubuntu/Fedora equivalents).
 
@@ -35,7 +36,7 @@ tweakctl gui                 # graphical interface (needs tkinter)
 tweakctl hibernate check     # does hibernation work?
 tweakctl hibernate enable    # make it work
 tweakctl s3 set-deep
-tweakctl plymouth preview    # watch the boot animation live
+tweakctl plymouth preview    # play the boot animation in the app
 tweakctl plymouth apply --theme watch-dogs
 tweakctl sound preview --name ctos-boot   # listen first
 tweakctl sound apply --name ctos-boot
@@ -44,11 +45,17 @@ tweakctl update-check
 
 ### GUI app
 
-`tweakctl-gui` (or `tweakctl gui`) is a graphical front-end — same checks, same
-safety dialogs, same actions. Sidebar pages: Dashboard, Hibernation, Sleep (S3),
-Boot splash, Sounds, Updates, About. System changes elevate automatically
-(pkexec or sudo). Install tkinter if missing: `sudo apt install python3-tk`,
-`sudo dnf install python3-tkinter`, or `sudo pacman -S tk`.
+`tweakctl-gui` (or `tweakctl gui`) is a modern dark-themed graphical
+front-end — same checks, same actions, same safety dialogs. Icon
+sidebar (▣ ❄ ☾ ◐ ♪ ↑ ⚙), card layout, status pills, toast
+notifications, and the boot splash animation plays inside the
+app. Sidebar pages: Dashboard, Hibernation, Sleep (S3), Boot
+splash, Sounds, Updates, About. System changes elevate
+automatically (pkexec or sudo), and on the .deb/.rpm/Arch
+packages and the AppImage it appears in the application menu
+with its own icon. Install tkinter if missing:
+`sudo apt install python3-tk`, `sudo dnf install python3-tkinter`,
+or `sudo pacman -S tk`.
 
 ```bash
 cd hibernation && sudo ./setup.sh   # then reboot + systemctl hibernate

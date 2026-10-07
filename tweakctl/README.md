@@ -8,11 +8,16 @@ One CLI **and GUI** to check & enable **hibernation**, pick **S3 deep sleep**, s
 tweakctl-gui        # or: tweakctl gui
 ```
 
-A tkinter-based graphical front-end — same checks, same actions, same safety
-dialogs as the CLI. Works on any distro with `python3` + `tkinter`
+A modern dark-themed graphical front-end — same checks, same actions,
+same safety dialogs as the CLI. Custom logo, icon sidebar (▣ Dashboard,
+❄ Hibernation, ☾ Sleep, ◐ Boot splash, ♪ Sounds), card layout, status
+pills, toast notifications, and the boot splash animation plays
+**inside the app**. Works on any distro with `python3` + `tkinter`
 (`sudo apt install python3-tk` / `sudo dnf install python3-tkinter` /
 `sudo pacman -S tk` if missing). System changes are elevated automatically
-(pkexec → sudo). First run shows the same disclaimer as the CLI.
+(pkexec → sudo). First run shows the same disclaimer as the CLI. On the
+.deb/.rpm/Arch packages and the AppImage it also appears in the
+application menu with its own icon.
 
 ## Install
 
@@ -31,8 +36,8 @@ npm i -g tweakctl      # same tool, shipped as an npm package
 ### Arch (AUR-style, no root needed for PKGBUILD build)
 ```bash
 cd tweakctl/packaging && makepkg -si
-# or from the release asset:
-sudo pacman -U tweakctl-0.6.0-1-any.pkg.tar.zst
+# or from the release asset (latest release):
+sudo pacman -U tweakctl-*.pkg.tar.zst
 ```
 To publish to the AUR, create an AUR4 account, then:
 ```bash
@@ -50,13 +55,13 @@ Bundles python3 + tkinter — runs on any distro, nothing to install.
 
 ### Ubuntu / Debian (.deb)
 ```bash
-sudo dpkg -i tweakctl_0.6.0_all.deb
+sudo dpkg -i tweakctl_*_all.deb
 # or build: cd tweakctl/packaging && ./build.sh
 ```
 
 ### Fedora / RHEL (.rpm)
 ```bash
-sudo rpm -i tweakctl-0.6.0-1.noarch.rpm
+sudo rpm -i tweakctl-*.noarch.rpm
 # or build: cd tweakctl/packaging && ./build.sh
 ```
 
@@ -90,13 +95,13 @@ tweakctl disclaimer          # the full risk disclaimer — read it once
 anything. The same text lives in `tweakctl disclaimer`, in *About & disclaimer*
 and in the repo README.
 
-TUI navigation: `↑`/`↓` (or `j`/`k`) to move, `Home`/`End` to jump, `Enter` to run, `PgUp`/`PgDn` to scroll long output, `q` (or `Esc`) to quit. **Pickers** (themes, sounds) use the same keys plus any letter to jump to the next entry starting with it; `Enter` selects, `Esc` cancels. Long output is word-wrapped to the pane — nothing is cut off.
+TUI navigation: `↑`/`↓` (or `j`/`k`) to move, `Home`/`End` to jump, `Enter` to run, `PgUp`/`PgDn` to scroll long output, `q` (or `Esc`) to quit. The menu is grouped into sections (❄ Hibernation, ☾ S3 sleep, ◐ Boot splash, ♪ Sounds, ⚙ System) and starts with an animated logo. **Pickers** (themes, sounds) use the same keys plus any letter to jump to the next entry starting with it; `Enter` selects, `Esc` cancels. Long output is word-wrapped to the pane — nothing is cut off.
 
 If something is **already enabled** (hibernation working, deep sleep active, theme already selected, boot sound set), the TUI shows an **“Are you sure?”** screen explaining exactly what would change — `y` continues, `n`/`Esc` cancels with nothing modified.
 
 **Previews:**
 - `Sound > Preview a sound` opens a picker of every sound tweakctl can find (current boot sound marked `• current`) — arrow down, press `Enter`, and it plays.
-- `Plymouth > Preview animation` opens a theme picker (active theme marked `• active`); choosing another theme switches to it **temporarily**, plays the real boot splash for ~8 s, then restores your original theme. Falls back to opening the animation as a GIF.
+- `Plymouth > Preview animation` opens a theme picker (active theme marked `• active`). In the **GUI** the theme's animation plays right inside the app (loops until you close it); in the **TUI** it switches to the theme temporarily, plays the real boot splash for ~8 s, then restores your original theme.
 
 ## How it works
 - **Hibernate enable** detects your distro and either adds `resume=UUID=...` to GRUB (Arch/Ubuntu) and rebuilds initramfs (`mkinitcpio -P`/`update-initramfs -u`), or uses `grubby` + `dracut` on Fedora. Always creates the fstab swap line if missing.

@@ -19,3 +19,6 @@ tweakctl/packaging/src/
 tweakctl/packaging/pkg/
 tweakctl/packaging/tweakctl-*/
 tweakctl/packaging/tweakctl-*
+
+# local build output
+tweakctl/deb/

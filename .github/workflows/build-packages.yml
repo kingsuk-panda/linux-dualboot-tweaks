@@ -9,17 +9,36 @@ permissions:
   contents: write
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag version matches app version
+        run: |
+          VER="${GITHUB_REF#refs/tags/v}"
+          APP="$(grep -oP 'VERSION = "\K[^"]+' tweakctl/tweakctl)"
+          GUI="$(grep -oP 'VERSION = "\K[^"]+' tweakctl/tweakctl-gui)"
+          NPM="$(grep -oP '"version": "\K[^"]+' tweakctl/package.json)"
+          echo "tag=$VER  tweakctl=$APP  gui=$GUI  npm=$NPM"
+          if [ "$VER" != "$APP" ] || [ "$VER" != "$GUI" ] || [ "$VER" != "$NPM" ]; then
+            echo "::error::Version mismatch! Run ./bump-version.sh $VER --tag so the tag and all files agree."
+            exit 1
+          fi
+
   build-debian:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build .deb
         run: |
           VER="${GITHUB_REF#refs/tags/v}"
-          mkdir -p deb/usr/local/bin deb/usr/share/applications deb/DEBIAN
+          mkdir -p deb/usr/local/bin deb/usr/share/applications deb/usr/share/icons/hicolor/256x256/apps deb/DEBIAN
           cp tweakctl/tweakctl tweakctl/tweakctl-gui deb/usr/local/bin/
           chmod 755 deb/usr/local/bin/tweakctl deb/usr/local/bin/tweakctl-gui
           cp tweakctl/tweakctl-gui.desktop deb/usr/share/applications/
+          cp tweakctl/tweakctl.png deb/usr/share/icons/hicolor/256x256/apps/tweakctl.png
           cp tweakctl/packaging/deb-control deb/DEBIAN/control
           sed -i "s/^Version:.*/Version: $VER/" deb/DEBIAN/control
           dpkg-deb --build deb tweakctl_${VER}_all.deb
@@ -27,6 +46,7 @@ jobs:
         with: { name: deb, path: tweakctl_*.deb }
 
   build-rpm:
+    needs: check
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:
@@ -37,13 +57,14 @@ jobs:
         run: |
           VER="${GITHUB_REF#refs/tags/v}"
           mkdir -p rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
-          cp tweakctl/tweakctl tweakctl/tweakctl-gui tweakctl/tweakctl-gui.desktop rpmbuild/SOURCES/
+          cp tweakctl/tweakctl tweakctl/tweakctl-gui tweakctl/tweakctl-gui.desktop tweakctl/tweakctl.png rpmbuild/SOURCES/
           sed "s/^Version:.*/Version:        $VER/" tweakctl/packaging/tweakctl.spec > rpmbuild/SPECS/tweakctl.spec
           rpmbuild -bb --define "_topdir $PWD/rpmbuild" rpmbuild/SPECS/tweakctl.spec
       - uses: actions/upload-artifact@v4
         with: { name: rpm, path: rpmbuild/RPMS/noarch/*.rpm }
 
   build-arch:
+    needs: check
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
@@ -59,6 +80,7 @@ jobs:
         with: { name: archpkg, path: tweakctl/packaging/*.pkg.tar.zst }
 
   build-appimage:
+    needs: check
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -72,6 +94,7 @@ jobs:
           ~/.local/bin/pyinstaller --onefile --name tweakctl tweakctl/tweakctl
           ~/.local/bin/pyinstaller --onefile --name tweakctl-gui \
             --add-data "tweakctl/tweakctl:tweakctl" \
+            --add-data "tweakctl/tweakctl.png:tweakctl" \
             --hidden-import urllib.request --hidden-import json \
             tweakctl/tweakctl-gui
       - name: Assemble AppDir
@@ -79,35 +102,16 @@ jobs:
           VER="${GITHUB_REF#refs/tags/v}"
           mkdir -p AppDir/usr/bin
           cp dist/tweakctl dist/tweakctl-gui AppDir/usr/bin/
-          python3 - <<'PYEOF'
-          import zlib, struct
-          W = H = 256
-          rows = b''
-          for y in range(H):
-              rows += b'\x00'
-              for x in range(W):
-                  cx, cy = x - 128, y - 128
-                  if cx*cx + cy*cy < 120*120:
-                      rows += bytes((46, 204, 113))
-                  else:
-                      rows += bytes((30, 30, 46))
-          def chunk(t, d):
-              c = struct.pack('>I', len(d)) + t + d
-              return c + struct.pack('>I', zlib.crc32(t + d))
-          png = b'\x89PNG\r\n\x1a\n'
-          png += chunk(b'IHDR', struct.pack('>IIBBBBB', W, H, 8, 2, 0, 0, 0))
-          png += chunk(b'IDAT', zlib.compress(rows))
-          png += chunk(b'IEND', b'')
-          open('AppDir/tweakctl.png', 'wb').write(png)
-          PYEOF
+          cp tweakctl/tweakctl.png AppDir/tweakctl.png
           cat > AppDir/tweakctl.desktop <<EOF
           [Desktop Entry]
           Type=Application
-          Name=tweakctl
+          Name=Tweakctl
+          GenericName=System Tweaks
           Comment=Hibernation, S3 sleep, Plymouth boot splash and ctOS sounds
           Exec=tweakctl
           Icon=tweakctl
-          Categories=System;
+          Categories=Settings;System;
           Terminal=false
           EOF
           cat > AppDir/AppRun <<'EOF'
@@ -133,11 +137,26 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { path: artifacts }
+      - name: Release notes from CHANGELOG.md
+        run: |
+          VER="${GITHUB_REF#refs/tags/v}"
+          awk -v ver="$VER" '
+            $0 ~ "^## \\[" ver "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/d' > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::No CHANGELOG.md section for v$VER — release notes would be empty."
+            exit 1
+          fi
+          head -5 release-notes.md
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
+          body_path: release-notes.md
           files: |
             artifacts/deb/*
             artifacts/rpm/*
