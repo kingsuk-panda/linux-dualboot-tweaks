@@ -7,10 +7,10 @@ arch=('any')
 url="https://github.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks"
 license=('MIT')
 depends=('python' 'tk')
-source=("$pkgname-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v${pkgver}/tweakctl/tweakctl"
-        "$pkgname-gui-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v${pkgver}/tweakctl/tweakctl-gui"
-        "tweakctl-gui.desktop::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v${pkgver}/tweakctl/tweakctl-gui.desktop"
-        "tweakctl.png::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v${pkgver}/tweakctl/tweakctl.png")
+source=("$pkgname-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.8.0/tweakctl/tweakctl"
+        "$pkgname-gui-$pkgver::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.8.0/tweakctl/tweakctl-gui"
+        "tweakctl-gui.desktop::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.8.0/tweakctl/tweakctl-gui.desktop"
+        "tweakctl.png::https://raw.githubusercontent.com/kingsuk-panda/linux-hibernate-dual-boot-tweaks/v0.8.0/tweakctl/tweakctl.png")
 sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
 
 package() {
