@@ -22,3 +22,4 @@ tweakctl/packaging/tweakctl-*
 
 # local build output
 tweakctl/deb/
+aur-tmp/
