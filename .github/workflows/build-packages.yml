@@ -111,7 +111,7 @@ jobs:
           Comment=Hibernation, S3 sleep, Plymouth boot splash and ctOS sounds
           Exec=tweakctl
           Icon=tweakctl
-          Categories=Settings;System;
+          Categories=System;
           Terminal=false
           EOF
           cat > AppDir/AppRun <<'EOF'
@@ -128,7 +128,10 @@ jobs:
         run: |
           VER="${GITHUB_REF#refs/tags/v}"
           ARCH=x86_64 VERSION="$VER" ./appimagetool --appimage-extract-and-run AppDir
-          mv tweakctl-${VER}-x86_64.AppImage tweakctl-x86_64.AppImage
+          # appimagetool names the file after the desktop entry's Name
+          # ("Tweakctl-<ver>-x86_64.AppImage"); the download URL must stay
+          # lowercase, so rename whatever it produced:
+          mv *-"${VER}"-x86_64.AppImage tweakctl-x86_64.AppImage
       - uses: actions/upload-artifact@v4
         with: { name: appimage, path: tweakctl-x86_64.AppImage }
 
